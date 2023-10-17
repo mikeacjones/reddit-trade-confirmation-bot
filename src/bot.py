@@ -279,18 +279,21 @@ def should_process_comment(comment):
 
 def should_process_redditor(redditor):
     """Checks if this is an author where we should process their comment/submission"""
-    if redditor is None:
-        return False
+    try:
+        if redditor is None:
+            return False
 
-    if not hasattr(redditor, "id"):
-        return False
+        if not hasattr(redditor, "id"):
+            return False
 
-    if redditor.id == BOT.id:
-        return False
+        if redditor.id == BOT.id:
+            return False
 
-    if hasattr(redditor, "is_suspended"):
-        return not redditor.is_suspended
-    return True
+        if hasattr(redditor, "is_suspended"):
+            return not redditor.is_suspended
+        return True
+    except prawcore.exceptions.NotFound:
+        return False
 
 
 def is_confirming_trade(comment_body):
