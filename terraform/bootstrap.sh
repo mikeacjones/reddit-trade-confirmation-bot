@@ -29,11 +29,27 @@ for subreddit_name in $secret_names; do
     -e SUBREDDIT_NAME=$subreddit_name \
     --restart always \
     trade-confirmation-bot
-    
-  echo "0 * * * * docker exec $subreddit_name python3 bot.py create-monthly" >>dailycron.cron
-  echo "0 0 5 * * docker exec $subreddit_name python3 bot.py lock-submissions" >>dailycron.cron
-done
 
-crontab -l -u root >>dailycron.cron
-crontab -u root dailycron.cron
-rm dailycron.cron
+  # Create the service file
+  echo "[Unit]" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+  echo "Description=Creates monthly post for r/$subreddit_name" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+  echo "" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+  echo "[Service]" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+  echo "Type=oneshot" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+  echo "ExecStart=docker exec $subreddit_name python3 bot.py create-monthly" >>/etc/systemd/system/$subreddit_name-monthly-post.service
+
+  # Create the timer file
+  echo "[Unit]" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "Description=Trigger for monthly post for r/$subreddit_name" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "[Timer]" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "OnCalendar=monthly" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "Persistent=true" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "[Install]" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+  echo "WantedBy=timers.target" >>/etc/systemd/system/$subreddit_name-monthly-post.timer
+
+  systemctl daemon-reload
+  systemctl enable $subreddit_name-monthly-post.timer
+  systemctl start $subreddit_name-monthly-post.timer
+done
