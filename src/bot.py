@@ -232,10 +232,6 @@ def check_trade_history(comment_author, parent_author):
 
 def increment_trades(parent_comment, comment):
     """Increments and sets the trade flairs for two Redditor's"""
-    # refresh comments so that we have the latest attributes; can be an issue when trades are confirmed before the next iterations
-    # occurs, so two sets of confirmations can end up in the same loop
-    parent_comment.refresh()
-    comment.refresh()
 
     if parent_comment.saved:
         return
@@ -348,6 +344,10 @@ def handle_confirmation_thread(comment):
         return
 
     parent_comment = comment.parent()
+
+    parent_comment.refresh()
+    comment.refresh()
+
     if (
         not parent_comment
         or parent_comment.banned_by is not None
