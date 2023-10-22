@@ -180,6 +180,7 @@ def increment_flair(user, flair_text):
         current_trades = int(match.group(1))
         new_trades = current_trades + 1
         return set_flair(user, new_trades)
+    return flair_text
 
 
 def set_flair(user, count):
@@ -235,11 +236,10 @@ def increment_trades(parent_comment, comment):
 
     if parent_comment.saved:
         return
-    new_parent_flair = (
-        increment_flair(parent_comment.author.name, parent_comment.author_flair_text)
-        or parent_comment.author_flair_text
-    )
-    new_comment_flair = increment_flair(comment.author.name, comment.author_flair_text) or comment.author_flair_text
+    comment.author_flair_text = current_flair_text(comment.author)
+    parent_comment.author_flair_text = current_flair_text(parent_comment.author)
+    new_parent_flair = increment_flair(parent_comment.author.name, parent_comment.author_flair_text)
+    new_comment_flair = increment_flair(comment.author.name, comment.author_flair_text)
     reply_comment = comment.reply(
         TRADE_CONFIRMATION_TEMPLATE.format(
             comment=comment,
@@ -321,6 +321,11 @@ def is_confirming_trade(comment_body):
     return False
 
 
+def current_flair_text(redditor):
+    """Uses an API call to ensure we have the latest flair text"""
+    return next(SUBREDDIT.flair(redditor))["flair_text"]
+
+
 def handle_automoderator_comment(comment):
     """Handles a comment left by AutoModerator."""
     if "removed" in comment.body.lower():
@@ -344,9 +349,6 @@ def handle_confirmation_thread(comment):
         return
 
     parent_comment = comment.parent()
-
-    parent_comment.refresh()
-    comment.refresh()
 
     if (
         not parent_comment
