@@ -85,12 +85,6 @@ data "aws_ami" "amazon-linux-2" {
   }
 }
 
-resource "time_sleep" "wait_30_seconds" {
-  depends_on      = [aws_iam_instance_profile.trade-confirmation-bot-instance-profile]
-  create_duration = "30s"
-}
-
-
 resource "aws_instance" "trade-confirmation-bot" {
   ami                  = data.aws_ami.amazon-linux-2.id
   instance_type        = "t4g.nano"
