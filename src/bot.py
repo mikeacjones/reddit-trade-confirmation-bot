@@ -343,9 +343,20 @@ def handle_non_confirmation_thread(comment):
         set_flair(comment.author.name, 0)
 
 
+def handle_root_confirmation_thread(comment):
+    """Handles a root level comment on a confirmation thread"""
+    if comment.submission.stickied:
+        return
+    comment.mod.lock()
+    comment.reply(OLD_CONFIRMATION_THREAD.format(comment=comment))
+    comment.save()
+    return
+
+
 def handle_confirmation_thread(comment):
     """Handles a comment left on the confirmation thread."""
     if comment.is_root:
+        handle_root_confirmation_thread(comment)
         return
 
     parent_comment = comment.parent()
@@ -450,6 +461,7 @@ if __name__ == "__main__":
             ALREADY_CONFIRMED_TEMPLATE = load_template("already_confirmed")
             CANT_CONFIRM_USERNAME_TEMPLATE = load_template("cant_confirm_username")
             NO_HISTORY_TEMPLATE = load_template("no_history")
+            OLD_CONFIRMATION_THREAD = load_template("old_confirmation_thread")
             FLAIR_TEMPLATES = load_flair_templates()
             CURRENT_MODS = [str(mod) for mod in SUBREDDIT.moderator()]
             OPENAI_CLIENT = OpenAI(api_key=SECRETS["OPENAI_API_KEY"])

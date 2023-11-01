@@ -1,0 +1,1 @@
+Utilize the new confirmation thread to start a new confirmation; only existing trade confirmations awaiting reply are allowed in previous month's threads.
