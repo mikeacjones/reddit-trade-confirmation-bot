@@ -347,6 +347,13 @@ def handle_root_confirmation_thread(comment):
     """Handles a root level comment on a confirmation thread"""
     if comment.submission.stickied:
         return
+
+    comment_datetime = datetime.utcfromtimestamp(comment.created_utc)
+    now = datetime.utcnow()
+    is_same_month_year = comment_datetime.year == now.year and comment_datetime.month == now.month
+    if not is_same_month_year:
+        return
+
     comment.mod.lock()
     comment.reply(OLD_CONFIRMATION_THREAD.format(comment=comment))
     comment.save()
