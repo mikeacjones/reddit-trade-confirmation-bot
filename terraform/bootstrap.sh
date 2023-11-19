@@ -27,7 +27,7 @@ for subreddit_name in $secret_names; do
     -d \
     -e AWS_DEFAULT_REGION='us-east-2' \
     -e SUBREDDIT_NAME=$subreddit_name \
-    --restart on-failure:5 \
+    --restart always \
     trade-confirmation-bot
 
   # Create the service file for creating the monthly post

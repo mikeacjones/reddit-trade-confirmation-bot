@@ -360,6 +360,18 @@ def handle_root_confirmation_thread(comment):
     return
 
 
+def handle_catch_up():
+    current_submission = next(BOT.submissions.new(limit=1))
+    current_submission.comment_sort = "new"
+    current_submission.comments.replace_more(limit=None)
+    LOGGER.info("Starting catch-up process")
+    for comment in current_submission.comments.list():
+        if comment.saved:
+            continue
+        handle_confirmation_thread(comment)
+    LOGGER.info("Catch-up process finished")
+
+
 def handle_confirmation_thread(comment):
     """Handles a comment left on the confirmation thread."""
     if comment.is_root:
@@ -472,7 +484,7 @@ if __name__ == "__main__":
             FLAIR_TEMPLATES = load_flair_templates()
             CURRENT_MODS = [str(mod) for mod in SUBREDDIT.moderator()]
             OPENAI_CLIENT = OpenAI(api_key=SECRETS["OPENAI_API_KEY"])
-
+            handle_catch_up()
             monitor_comments()
     except Exception as main_exception:
         LOGGER.exception("Main crashed")
