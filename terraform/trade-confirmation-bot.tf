@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 3.0"
+      version = "~> 5"
     }
   }
   backend "s3" {
@@ -13,7 +13,9 @@ terraform {
 }
 
 # Configure the AWS Provider
-provider "aws" {}
+provider "aws" {
+  region = "us-east-2"
+}
 
 resource "aws_iam_policy" "trade-confirmation-bot-policy" {
   name        = "trade-confirmation-bot-policy-${random_string.random.result}"
