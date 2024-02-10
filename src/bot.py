@@ -199,10 +199,10 @@ def check_trade_history(comment_author, parent_author):
     to have made a root level comment on that submission. It does not matter which direction that goes in,
     just attempts to validate there was actually a trade post and corresponding comment.
     Returns a boolean"""
-    two_months_ago = datetime.now() - timedelta(days=60)
-    for users in [[comment_author, parent_author], [parent_author, comment_author]]:
+    lookback_range = datetime.now() - timedelta(days=40)
+    for users in [[parent_author, comment_author], [comment_author, parent_author]]:
         for comment in REDDIT.redditor(users[0].name).comments.new(limit=None):
-            if comment.created_utc < two_months_ago.timestamp():
+            if comment.created_utc < lookback_range.timestamp():
                 break
 
             if (
