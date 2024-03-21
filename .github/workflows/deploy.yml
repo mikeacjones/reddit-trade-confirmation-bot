@@ -1,0 +1,21 @@
+name: Deploy
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy bot
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.DEPLOYMENT_PAT }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'mikeacjones',
+              repo: 'reddit-bot-pipeline',
+              event_type: 'trade-confirmation-bot-release',
+            })
