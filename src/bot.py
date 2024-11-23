@@ -305,7 +305,7 @@ def is_confirming_trade(comment_body):
     try:
         comment_body = comment_body.replace('"', "")
         completion = OPENAI_CLIENT.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
                 {
                     "role": "user",
