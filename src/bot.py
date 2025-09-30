@@ -241,6 +241,8 @@ def increment_trades(parent_comment, comment):
     parent_comment.author_flair_text = current_flair_text(parent_comment.author)
     new_parent_flair = increment_flair(parent_comment.author.name, parent_comment.author_flair_text)
     new_comment_flair = increment_flair(comment.author.name, comment.author_flair_text)
+    parent_comment.save()
+    comment.save()
     reply_comment = comment.reply(
         TRADE_CONFIRMATION_TEMPLATE.format(
             comment=comment,
@@ -263,8 +265,6 @@ def increment_trades(parent_comment, comment):
     )
     LOGGER.info("Trade confirmed: https://reddit.com%s", reply_comment.permalink)
     reply_comment.save()
-    parent_comment.save()
-    comment.save()
 
 
 def should_process_comment(comment):
