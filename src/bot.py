@@ -377,12 +377,6 @@ def handle_confirmation_thread(comment):
         comment.permalink,
     )
 
-    if not check_trade_history(comment.author, parent_comment.author):
-        LOGGER.info("Could not find a valid communication history to validate trade")
-        comment.reply(NO_HISTORY_TEMPLATE.format(comment=comment, parent_comment=parent_comment))
-        comment.save()
-        return
-
     increment_trades(parent_comment, comment)
 
 
