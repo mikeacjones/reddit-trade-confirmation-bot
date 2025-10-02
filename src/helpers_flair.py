@@ -1,7 +1,5 @@
 """Flair management helper functions."""
 from logger import LOGGER
-from helpers_history import check_trade_history
-
 
 def load_flair_templates(subreddit):
     """Loads flair templates from Reddit, returned as a list."""
@@ -52,22 +50,6 @@ def set_flair(username: str, trade_count: int, settings):
 
 def increment_trades(parent_comment, comment, settings):
     """Increments trade count for both users involved in a trade."""
-    # Verify trade history
-    if not check_trade_history(parent_comment.author, comment.author, settings):
-        comment.reply(
-            settings.NO_HISTORY_TEMPLATE.format(
-                comment=comment, parent_comment=parent_comment
-            )
-        )
-        LOGGER.info(
-            "No trade history found between u/%s and u/%s at https://reddit.com%s",
-            parent_comment.author.name,
-            comment.author.name,
-            comment.permalink,
-        )
-        comment.save()
-        parent_comment.save()
-        return
     
     # Get current trade counts
     parent_flair = current_flair_text(parent_comment.author, settings.SUBREDDIT)
@@ -93,11 +75,15 @@ def increment_trades(parent_comment, comment, settings):
     # Set new flairs
     set_flair(parent_comment.author.name, parent_trades, settings)
     set_flair(comment.author.name, comment_trades, settings)
+
+    # Save comments to mark as processed
+    comment.save()
+    parent_comment.save()
     
     # Get new flair text for response
     new_parent_flair = current_flair_text(parent_comment.author, settings.SUBREDDIT)
     new_comment_flair = current_flair_text(comment.author, settings.SUBREDDIT)
-    
+
     # Reply with confirmation
     comment.reply(
         settings.TRADE_CONFIRMATION_TEMPLATE.format(
@@ -114,7 +100,3 @@ def increment_trades(parent_comment, comment, settings):
         comment.author.name,
         comment.permalink,
     )
-    
-    # Save comments to mark as processed
-    comment.save()
-    parent_comment.save()

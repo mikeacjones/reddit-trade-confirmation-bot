@@ -4,8 +4,6 @@ from praw import models
 import prawcore.exceptions
 from logger import LOGGER
 from helpers_redditor import should_process_redditor
-from helpers_history import check_trade_history
-
 
 def should_process_comment(comment: models.Comment, settings) -> bool:
     """Checks if we should actually process a comment in our stream loop."""
