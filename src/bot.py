@@ -637,7 +637,7 @@ if __name__ == "__main__":
             catch_up_on_missed_comments()
             
             # Start streaming (this blocks forever)
-            BOT.run()
+            praw_bot_wrapper.run()
     
     except KeyboardInterrupt:
         LOGGER.info("Bot shutdown requested")
