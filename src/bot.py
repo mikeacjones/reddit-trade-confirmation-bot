@@ -4,8 +4,6 @@ import sys
 import logging
 import re
 import json
-import praw_bot_wrapper
-from praw import Reddit
 from datetime import datetime, timezone
 from typing import Optional, Dict
 import http.client
@@ -14,6 +12,7 @@ import urllib
 import boto3
 import praw
 import prawcore.exceptions
+from praw_bot_wrapper import stream_handler, outage_recovery_handler, run  # from praw-bot-wrapper
 
 # ============================================================================
 # Configuration
@@ -88,7 +87,7 @@ SECRETS = load_secrets(SUBREDDIT_NAME)
 # Bot Initialization
 # ============================================================================
 
-BOT = BOT = Reddit(
+REDDIT = praw.Reddit(
     client_id=SECRETS["REDDIT_CLIENT_ID"],
     client_secret=SECRETS["REDDIT_CLIENT_SECRET"],
     user_agent=SECRETS["REDDIT_USER_AGENT"],
@@ -96,7 +95,8 @@ BOT = BOT = Reddit(
     password=SECRETS["REDDIT_PASSWORD"],
 )
 
-SUBREDDIT = BOT.subreddit(SUBREDDIT_NAME)
+SUBREDDIT = REDDIT.subreddit(SUBREDDIT_NAME)
+BOT_USER = REDDIT.user.me()  # Cache bot user
 
 
 # ============================================================================
@@ -275,7 +275,7 @@ def should_process_redditor(redditor) -> bool:
             return False
         if not hasattr(redditor, "id"):
             return False
-        if redditor.id == BOT.user.me().id:
+        if redditor.id == BOT_USER.id:
             return False
         if hasattr(redditor, "is_suspended") and redditor.is_suspended:
             return False
@@ -471,7 +471,12 @@ def handle_confirmation_thread(comment) -> None:
 # Stream Handlers (using praw-bot-wrapper decorators)
 # ============================================================================
 
-@praw_bot_wrapper.stream_handler(SUBREDDIT.stream.comments)
+def comment_stream_generator():
+    """Generator function for comment stream."""
+    return SUBREDDIT.stream.comments(pause_after=-1)
+
+
+@stream_handler(comment_stream_generator)
 def handle_comment_stream(comment: praw.models.Comment) -> None:
     """Process comments from the stream."""
     # Skip if already processed
@@ -495,7 +500,7 @@ def handle_comment_stream(comment: praw.models.Comment) -> None:
             return
         
         # Check if comment is in bot's submission (confirmation thread)
-        if comment.submission.author == BOT.user.me():
+        if comment.submission.author == BOT_USER:
             handle_confirmation_thread(comment)
         else:
             handle_non_confirmation_thread(comment)
@@ -505,7 +510,7 @@ def handle_comment_stream(comment: praw.models.Comment) -> None:
         # Don't re-raise - let the bot continue
 
 
-@praw_bot_wrapper.outage_recovery_handler(outage_threshold=10)
+@outage_recovery_handler(outage_threshold=10)
 def handle_outage_recovery(started_at) -> None:
     """Handle recovery from Reddit API outage."""
     message = f"Bot recovered from outage (started at {started_at}) - r/{SUBREDDIT_NAME}"
@@ -519,8 +524,7 @@ def handle_outage_recovery(started_at) -> None:
 
 def create_monthly_post() -> None:
     """Create the monthly confirmation thread."""
-    bot_user = BOT.user.me()
-    previous_submission = next(bot_user.submissions.new(limit=1))
+    previous_submission = next(BOT_USER.submissions.new(limit=1))
     submission_date = datetime.fromtimestamp(previous_submission.created_utc, tz=timezone.utc)
     now = datetime.now(timezone.utc)
     
@@ -549,7 +553,7 @@ def create_monthly_post() -> None:
     new_submission = SUBREDDIT.submit(
         title=now.strftime(title_template),
         selftext=post_template.format(
-            bot_name=bot_user.name,
+            bot_name=BOT_USER.name,
             subreddit_name=SUBREDDIT_NAME,
             previous_month_submission=previous_submission,
             now=now,
@@ -568,9 +572,8 @@ def create_monthly_post() -> None:
 def lock_previous_submissions() -> None:
     """Lock submissions from previous months."""
     LOGGER.info("Locking previous submissions")
-    bot_user = BOT.user.me()
     
-    for submission in bot_user.submissions.new(limit=10):
+    for submission in BOT_USER.submissions.new(limit=10):
         if submission.stickied:
             continue
         if not submission.locked:
@@ -583,8 +586,7 @@ def lock_previous_submissions() -> None:
 
 def catch_up_on_missed_comments() -> None:
     """Process any comments that were missed while bot was offline."""
-    bot_user = BOT.user.me()
-    current_submission = next(bot_user.submissions.new(limit=1))
+    current_submission = next(BOT_USER.submissions.new(limit=1))
     current_submission.comment_sort = "new"
     current_submission.comments.replace_more(limit=None)
     
@@ -637,7 +639,7 @@ if __name__ == "__main__":
             catch_up_on_missed_comments()
             
             # Start streaming (this blocks forever)
-            praw_bot_wrapper.run()
+            run()
     
     except KeyboardInterrupt:
         LOGGER.info("Bot shutdown requested")
