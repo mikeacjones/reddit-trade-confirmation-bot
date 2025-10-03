@@ -4,6 +4,8 @@ import sys
 import logging
 import re
 import json
+import praw_bot_wrapper
+from praw import Reddit
 from datetime import datetime, timezone
 from typing import Optional, Dict
 import http.client
@@ -12,7 +14,6 @@ import urllib
 import boto3
 import praw
 import prawcore.exceptions
-from bot import Bot  # from praw-bot-wrapper
 
 # ============================================================================
 # Configuration
@@ -87,13 +88,12 @@ SECRETS = load_secrets(SUBREDDIT_NAME)
 # Bot Initialization
 # ============================================================================
 
-BOT = Bot(
-    SECRETS["REDDIT_CLIENT_ID"],
-    SECRETS["REDDIT_CLIENT_SECRET"],
-    SECRETS["REDDIT_USER_AGENT"],
-    SECRETS["REDDIT_USERNAME"],
-    SECRETS["REDDIT_PASSWORD"],
-    outage_threshold=10,  # ~1 hour with exponential backoff
+BOT = BOT = Reddit(
+    client_id=SECRETS["REDDIT_CLIENT_ID"],
+    client_secret=SECRETS["REDDIT_CLIENT_SECRET"],
+    user_agent=SECRETS["REDDIT_USER_AGENT"],
+    username=SECRETS["REDDIT_USERNAME"],
+    password=SECRETS["REDDIT_PASSWORD"],
 )
 
 SUBREDDIT = BOT.subreddit(SUBREDDIT_NAME)
@@ -471,7 +471,7 @@ def handle_confirmation_thread(comment) -> None:
 # Stream Handlers (using praw-bot-wrapper decorators)
 # ============================================================================
 
-@BOT.stream_handler(SUBREDDIT.stream.comments)
+@praw_bot_wrapper.stream_handler(SUBREDDIT.stream.comments)
 def handle_comment_stream(comment: praw.models.Comment) -> None:
     """Process comments from the stream."""
     # Skip if already processed
@@ -505,7 +505,7 @@ def handle_comment_stream(comment: praw.models.Comment) -> None:
         # Don't re-raise - let the bot continue
 
 
-@BOT.outage_recovery_handler()
+@praw_bot_wrapper.outage_recovery_handler(outage_threshold=10)
 def handle_outage_recovery(started_at) -> None:
     """Handle recovery from Reddit API outage."""
     message = f"Bot recovered from outage (started at {started_at}) - r/{SUBREDDIT_NAME}"
