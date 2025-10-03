@@ -471,12 +471,8 @@ def handle_confirmation_thread(comment) -> None:
 # Stream Handlers (using praw-bot-wrapper decorators)
 # ============================================================================
 
-def comment_stream_generator():
-    """Generator function for comment stream."""
-    return SUBREDDIT.stream.comments(pause_after=-1)
 
-
-@stream_handler(comment_stream_generator)
+@stream_handler(SUBREDDIT.stream.comments)
 def handle_comment_stream(comment: praw.models.Comment) -> None:
     """Process comments from the stream."""
     # Skip if already processed
