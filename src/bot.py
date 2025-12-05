@@ -9,10 +9,10 @@ from typing import Optional, Dict
 import http.client
 import urllib
 
-import boto3
 import praw
 import prawcore.exceptions
 from praw_bot_wrapper import stream_handler, outage_recovery_handler, run  # from praw-bot-wrapper
+from dotenv import load_dotenv
 
 # ============================================================================
 # Configuration
@@ -59,25 +59,20 @@ LOGGER = setup_logger("trade-confirmation-bot")
 # ============================================================================
 
 def load_secrets(subreddit: str) -> Dict:
-    """Load secrets from AWS Secrets Manager or environment."""
-    if os.getenv("DEV"):
-        # Development mode: load from environment
-        return {
-            "REDDIT_CLIENT_ID": os.getenv("REDDIT_CLIENT_ID"),
-            "REDDIT_CLIENT_SECRET": os.getenv("REDDIT_CLIENT_SECRET"),
-            "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT"),
-            "REDDIT_USERNAME": os.getenv("REDDIT_USERNAME"),
-            "REDDIT_PASSWORD": os.getenv("REDDIT_PASSWORD"),
-            "PUSHOVER_APP_TOKEN": os.getenv("PUSHOVER_APP_TOKEN", ""),
-            "PUSHOVER_USER_TOKEN": os.getenv("PUSHOVER_USER_TOKEN", ""),
-        }
-    
-    # Production mode: load from AWS Secrets Manager
-    secrets_manager = boto3.client("secretsmanager")
-    response = secrets_manager.get_secret_value(
-        SecretId=f"trade-confirmation-bot/{subreddit}"
-    )
-    return json.loads(response["SecretString"])
+    """Load secrets from .env file or environment variables."""
+    # Load .env file if it exists
+    load_dotenv()
+
+    # Load secrets from environment variables
+    return {
+        "REDDIT_CLIENT_ID": os.getenv("REDDIT_CLIENT_ID"),
+        "REDDIT_CLIENT_SECRET": os.getenv("REDDIT_CLIENT_SECRET"),
+        "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT"),
+        "REDDIT_USERNAME": os.getenv("REDDIT_USERNAME"),
+        "REDDIT_PASSWORD": os.getenv("REDDIT_PASSWORD"),
+        "PUSHOVER_APP_TOKEN": os.getenv("PUSHOVER_APP_TOKEN", ""),
+        "PUSHOVER_USER_TOKEN": os.getenv("PUSHOVER_USER_TOKEN", ""),
+    }
 
 
 SECRETS = load_secrets(SUBREDDIT_NAME)

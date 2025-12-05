@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM python:3.11.8-alpine
-COPY ./src/* . 
-RUN apk update
-RUN apk add git
+WORKDIR /app
+RUN apk update && apk add git
+COPY ./src/* .
 RUN pip install -r requirements.txt
-COPY . .
+COPY .env .
 CMD ["python3", "bot.py"]
