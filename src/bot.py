@@ -8,11 +8,14 @@ from datetime import datetime, timezone
 from typing import Optional, Dict
 import http.client
 import urllib
+import threading
 
-import boto3
 import praw
 import prawcore.exceptions
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from praw_bot_wrapper import stream_handler, outage_recovery_handler, run  # from praw-bot-wrapper
+from dotenv import load_dotenv
 
 # ============================================================================
 # Configuration
@@ -59,28 +62,117 @@ LOGGER = setup_logger("trade-confirmation-bot")
 # ============================================================================
 
 def load_secrets(subreddit: str) -> Dict:
-    """Load secrets from AWS Secrets Manager or environment."""
-    if os.getenv("DEV"):
-        # Development mode: load from environment
-        return {
-            "REDDIT_CLIENT_ID": os.getenv("REDDIT_CLIENT_ID"),
-            "REDDIT_CLIENT_SECRET": os.getenv("REDDIT_CLIENT_SECRET"),
-            "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT"),
-            "REDDIT_USERNAME": os.getenv("REDDIT_USERNAME"),
-            "REDDIT_PASSWORD": os.getenv("REDDIT_PASSWORD"),
-            "PUSHOVER_APP_TOKEN": os.getenv("PUSHOVER_APP_TOKEN", ""),
-            "PUSHOVER_USER_TOKEN": os.getenv("PUSHOVER_USER_TOKEN", ""),
-        }
-    
-    # Production mode: load from AWS Secrets Manager
-    secrets_manager = boto3.client("secretsmanager")
-    response = secrets_manager.get_secret_value(
-        SecretId=f"trade-confirmation-bot/{subreddit}"
-    )
-    return json.loads(response["SecretString"])
+    """Load secrets from .env file or environment variables."""
+    # Load .env file if it exists
+    load_dotenv()
+
+    # Load secrets from environment variables
+    return {
+        "REDDIT_CLIENT_ID": os.getenv("REDDIT_CLIENT_ID"),
+        "REDDIT_CLIENT_SECRET": os.getenv("REDDIT_CLIENT_SECRET"),
+        "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT"),
+        "REDDIT_USERNAME": os.getenv("REDDIT_USERNAME"),
+        "REDDIT_PASSWORD": os.getenv("REDDIT_PASSWORD"),
+        "PUSHOVER_APP_TOKEN": os.getenv("PUSHOVER_APP_TOKEN", ""),
+        "PUSHOVER_USER_TOKEN": os.getenv("PUSHOVER_USER_TOKEN", ""),
+    }
 
 
 SECRETS = load_secrets(SUBREDDIT_NAME)
+
+
+# ============================================================================
+# Job State Management (for catch-up after restarts)
+# ============================================================================
+
+JOB_STATE_FILE = "/tmp/reddit-bot-job-state.json"
+
+def load_job_state() -> Dict:
+    """Load job execution state from file."""
+    if os.path.exists(JOB_STATE_FILE):
+        try:
+            with open(JOB_STATE_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            LOGGER.warning("Failed to load job state: %s", e)
+    return {
+        "last_monthly_post": None,
+        "last_lock_submissions": None,
+    }
+
+def save_job_state(state: Dict) -> None:
+    """Save job execution state to file."""
+    try:
+        with open(JOB_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        LOGGER.error("Failed to save job state: %s", e)
+
+def should_run_monthly_post() -> bool:
+    """Check if monthly post job should run (catch-up logic).
+
+    First checks job state file. If no state exists, queries Reddit API
+    to check bot's last post. If recent post is from current month,
+    considers it caught up without running again.
+    """
+    now = datetime.now(timezone.utc)
+    current_month_key = now.strftime("%Y-%m")
+
+    state = load_job_state()
+    last_run = state.get("last_monthly_post")
+
+    # If we have recorded state, use it
+    if last_run:
+        last_month_key = last_run.split("T")[0][:7]
+        return current_month_key != last_month_key
+
+    # No recorded state - check Reddit API for bot's last post
+    try:
+        last_post = next(BOT_USER.submissions.new(limit=1))
+        post_date = datetime.fromtimestamp(last_post.created_utc, tz=timezone.utc)
+        post_month_key = post_date.strftime("%Y-%m")
+
+        LOGGER.info(
+            "No job state found. Checking Reddit: last post from %s (current month: %s)",
+            post_month_key,
+            current_month_key
+        )
+
+        if post_month_key == current_month_key:
+            # Recent post exists for current month - consider caught up
+            LOGGER.info("Monthly post already exists for current month (from Reddit)")
+            record_job_execution("last_monthly_post")
+            return False
+
+    except StopIteration:
+        # No posts found - should create one
+        LOGGER.warning("No posts found in Reddit API")
+    except Exception as e:
+        LOGGER.error("Failed to check Reddit for last post: %s", e)
+
+    # Run if: no state file, no posts, or posts are from previous month
+    return True
+
+def should_run_lock_submissions() -> bool:
+    """Check if lock submissions job should run (catch-up logic)."""
+    now = datetime.now(timezone.utc)
+    current_day_key = now.strftime("%Y-%m-%d")
+
+    state = load_job_state()
+    last_run = state.get("last_lock_submissions")
+
+    # Run if never run before or if we haven't run today
+    if not last_run:
+        return True
+
+    last_run_day = last_run.split("T")[0]
+    return current_day_key != last_run_day
+
+def record_job_execution(job_name: str) -> None:
+    """Record the execution time of a job."""
+    state = load_job_state()
+    state[job_name] = datetime.now(timezone.utc).isoformat()
+    save_job_state(state)
 
 
 # ============================================================================
@@ -568,7 +660,7 @@ def create_monthly_post() -> None:
 def lock_previous_submissions() -> None:
     """Lock submissions from previous months."""
     LOGGER.info("Locking previous submissions")
-    
+
     for submission in BOT_USER.submissions.new(limit=10):
         if submission.stickied:
             continue
@@ -578,6 +670,35 @@ def lock_previous_submissions() -> None:
                 LOGGER.info("Locked: https://reddit.com%s", submission.permalink)
             except Exception as e:
                 LOGGER.error("Failed to lock submission: %s", e)
+
+
+def scheduled_monthly_post_job() -> None:
+    """Scheduled job wrapper for monthly post creation."""
+    try:
+        if should_run_monthly_post():
+            LOGGER.info("Running scheduled monthly post job")
+            create_monthly_post()
+            record_job_execution("last_monthly_post")
+        else:
+            LOGGER.debug("Skipping monthly post job (already ran this month)")
+    except Exception as e:
+        LOGGER.error("Scheduled monthly post job failed: %s", e, exc_info=True)
+        send_pushover_notification(f"Monthly post job failed for r/{SUBREDDIT_NAME}: {str(e)[:100]}")
+
+
+def scheduled_lock_submissions_job() -> None:
+    """Scheduled job wrapper for locking submissions."""
+    try:
+        if should_run_lock_submissions():
+            LOGGER.info("Running scheduled lock submissions job")
+            send_pushover_notification(f"Locking previous month's posts for r/{SUBREDDIT_NAME}")
+            lock_previous_submissions()
+            record_job_execution("last_lock_submissions")
+        else:
+            LOGGER.debug("Skipping lock submissions job (already ran today)")
+    except Exception as e:
+        LOGGER.error("Scheduled lock submissions job failed: %s", e, exc_info=True)
+        send_pushover_notification(f"Lock submissions job failed for r/{SUBREDDIT_NAME}: {str(e)[:100]}")
 
 
 def catch_up_on_missed_comments() -> None:
@@ -598,6 +719,52 @@ def catch_up_on_missed_comments() -> None:
                 LOGGER.error("Error in catch-up for %s: %s", comment.id, e)
     
     LOGGER.info("Catch-up complete: processed %d comments", processed)
+
+
+# ============================================================================
+# Scheduler Management
+# ============================================================================
+
+def initialize_scheduler() -> BackgroundScheduler:
+    """Initialize and configure the background scheduler for monthly jobs."""
+    scheduler = BackgroundScheduler()
+
+    # Schedule monthly post creation on the 1st of each month at 00:00 UTC
+    scheduler.add_job(
+        scheduled_monthly_post_job,
+        CronTrigger(day=1, hour=0, minute=0),
+        id="monthly_post",
+        name="Monthly Post Creation",
+        replace_existing=True,
+    )
+
+    # Schedule lock submissions on the 5th of each month at 00:00 UTC
+    scheduler.add_job(
+        scheduled_lock_submissions_job,
+        CronTrigger(day=5, hour=0, minute=0),
+        id="lock_submissions",
+        name="Lock Previous Submissions",
+        replace_existing=True,
+    )
+
+    LOGGER.info("Scheduler initialized with jobs: monthly_post, lock_submissions")
+    return scheduler
+
+
+def run_with_scheduler() -> None:
+    """Start the bot with both scheduler and stream handler running."""
+    scheduler = initialize_scheduler()
+    scheduler.start()
+    LOGGER.info("Scheduler started")
+
+    try:
+        # Run the stream handler (this blocks indefinitely)
+        run()
+    except KeyboardInterrupt:
+        LOGGER.info("Keyboard interrupt received")
+    finally:
+        scheduler.shutdown()
+        LOGGER.info("Scheduler shutdown")
 
 
 # ============================================================================
@@ -627,15 +794,24 @@ if __name__ == "__main__":
                 sys.exit(1)
         
         else:
-            # Normal operation - start the bot
+            # Normal operation - start the bot with scheduler
             LOGGER.info("Bot starting up")
             send_pushover_notification(f"Bot startup for r/{SUBREDDIT_NAME}")
-            
+
             # Catch up on any missed comments
             catch_up_on_missed_comments()
-            
-            # Start streaming (this blocks forever)
-            run()
+
+            # Check and execute any missed scheduled jobs
+            if should_run_monthly_post():
+                LOGGER.info("Catch-up: Running monthly post job")
+                scheduled_monthly_post_job()
+
+            if should_run_lock_submissions():
+                LOGGER.info("Catch-up: Running lock submissions job")
+                scheduled_lock_submissions_job()
+
+            # Start streaming with scheduler (this blocks indefinitely)
+            run_with_scheduler()
     
     except KeyboardInterrupt:
         LOGGER.info("Bot shutdown requested")
