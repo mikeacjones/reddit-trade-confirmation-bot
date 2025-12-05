@@ -4,5 +4,4 @@ WORKDIR /app
 RUN apk update && apk add git
 COPY ./src/* .
 RUN pip install -r requirements.txt
-COPY .env .
 CMD ["python3", "bot.py"]
