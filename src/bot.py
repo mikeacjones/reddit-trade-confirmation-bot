@@ -109,19 +109,49 @@ def save_job_state(state: Dict) -> None:
         LOGGER.error("Failed to save job state: %s", e)
 
 def should_run_monthly_post() -> bool:
-    """Check if monthly post job should run (catch-up logic)."""
+    """Check if monthly post job should run (catch-up logic).
+
+    First checks job state file. If no state exists, queries Reddit API
+    to check bot's last post. If recent post is from current month,
+    considers it caught up without running again.
+    """
     now = datetime.now(timezone.utc)
     current_month_key = now.strftime("%Y-%m")
 
     state = load_job_state()
     last_run = state.get("last_monthly_post")
 
-    # Run if never run before or if we're in a new month
-    if not last_run:
-        return True
+    # If we have recorded state, use it
+    if last_run:
+        last_month_key = last_run.split("T")[0][:7]
+        return current_month_key != last_month_key
 
-    last_month_key = last_run.split("T")[0][:7]
-    return current_month_key != last_month_key
+    # No recorded state - check Reddit API for bot's last post
+    try:
+        last_post = next(BOT_USER.submissions.new(limit=1))
+        post_date = datetime.fromtimestamp(last_post.created_utc, tz=timezone.utc)
+        post_month_key = post_date.strftime("%Y-%m")
+
+        LOGGER.info(
+            "No job state found. Checking Reddit: last post from %s (current month: %s)",
+            post_month_key,
+            current_month_key
+        )
+
+        if post_month_key == current_month_key:
+            # Recent post exists for current month - consider caught up
+            LOGGER.info("Monthly post already exists for current month (from Reddit)")
+            record_job_execution("last_monthly_post")
+            return False
+
+    except StopIteration:
+        # No posts found - should create one
+        LOGGER.warning("No posts found in Reddit API")
+    except Exception as e:
+        LOGGER.error("Failed to check Reddit for last post: %s", e)
+
+    # Run if: no state file, no posts, or posts are from previous month
+    return True
 
 def should_run_lock_submissions() -> bool:
     """Check if lock submissions job should run (catch-up logic)."""
