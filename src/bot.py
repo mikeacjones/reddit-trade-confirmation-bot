@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from praw_bot_wrapper import stream_handler, outage_recovery_handler, run  # from praw-bot-wrapper
 from dotenv import load_dotenv
+from fraud_detection import FraudDetector, format_fraud_report
 
 # ============================================================================
 # Configuration
@@ -23,6 +24,7 @@ from dotenv import load_dotenv
 
 SUBREDDIT_NAME = os.environ["SUBREDDIT_NAME"]
 MONTHLY_POST_FLAIR_ID = os.getenv("MONTHLY_POST_FLAIR_ID", None)
+FRAUD_DETECTION_ENABLED = os.getenv("FRAUD_DETECTION_ENABLED", "false").lower() == "true"
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
 FLAIR_TEMPLATE_PATTERN = re.compile(r"Trades: ((\d+)-(\d+))")
 
@@ -354,6 +356,56 @@ class FlairManager:
 
 
 FLAIR_MANAGER = FlairManager(SUBREDDIT)
+FRAUD_DETECTOR = FraudDetector() if FRAUD_DETECTION_ENABLED else None
+
+
+# ============================================================================
+# Fraud Detection Functions
+# ============================================================================
+
+def send_fraud_alert_to_mods(username: str, claimed_trades: int, indicators) -> None:
+    """Send fraud alert to moderators via modmail."""
+    if not FRAUD_DETECTION_ENABLED or not indicators:
+        return
+
+    try:
+        report = format_fraud_report(username, claimed_trades, indicators)
+        if report:
+            # Send to modmail
+            SUBREDDIT.modmail.create(
+                subject=f"🚨 Fraud Alert: u/{username}",
+                body=report,
+            )
+            LOGGER.info(
+                "Sent fraud alert to mods for u/%s (%d indicators)",
+                username,
+                len(indicators),
+            )
+    except Exception as e:
+        LOGGER.error("Failed to send fraud alert: %s", e)
+
+
+def check_user_for_fraud(redditor: praw.models.Redditor) -> Optional[list]:
+    """Check if user shows fraud indicators."""
+    if not FRAUD_DETECTION_ENABLED or not FRAUD_DETECTOR:
+        return None
+
+    try:
+        # Get user's current trade count from flair
+        current_flair = FLAIR_MANAGER.get_current_flair_text(redditor.name)
+        trade_count = 0
+        if current_flair:
+            match = FLAIR_PATTERN.search(current_flair)
+            if match:
+                trade_count = int(match.group(1))
+
+        # Run fraud checks
+        indicators = FRAUD_DETECTOR.check_all(redditor, trade_count)
+        return indicators if indicators else None
+
+    except Exception as e:
+        LOGGER.error("Error checking fraud for u/%s: %s", redditor.name, e)
+        return None
 
 
 # ============================================================================
@@ -390,19 +442,50 @@ def increment_trades(parent_comment, comment) -> None:
     if parent_comment.saved:
         LOGGER.info("Parent comment already processed, skipping")
         return
-    
+
     # Get current flair texts
     parent_old_flair = FLAIR_MANAGER.get_current_flair_text(parent_comment.author.name)
     comment_old_flair = FLAIR_MANAGER.get_current_flair_text(comment.author.name)
-    
+
     # Increment flairs
     parent_new_flair = FLAIR_MANAGER.increment_flair(parent_comment.author.name)
     comment_new_flair = FLAIR_MANAGER.increment_flair(comment.author.name)
-    
+
     # Mark as processed
     parent_comment.save()
     comment.save()
-    
+
+    # Check for fraud indicators on both users
+    if FRAUD_DETECTION_ENABLED:
+        try:
+            # Check parent comment author
+            parent_indicators = check_user_for_fraud(parent_comment.author)
+            if parent_indicators:
+                # Extract new trade count from new flair
+                parent_trade_count = 1
+                if parent_new_flair:
+                    match = FLAIR_PATTERN.search(parent_new_flair)
+                    if match:
+                        parent_trade_count = int(match.group(1))
+                send_fraud_alert_to_mods(
+                    parent_comment.author.name, parent_trade_count, parent_indicators
+                )
+
+            # Check comment author
+            comment_indicators = check_user_for_fraud(comment.author)
+            if comment_indicators:
+                # Extract new trade count from new flair
+                comment_trade_count = 1
+                if comment_new_flair:
+                    match = FLAIR_PATTERN.search(comment_new_flair)
+                    if match:
+                        comment_trade_count = int(match.group(1))
+                send_fraud_alert_to_mods(
+                    comment.author.name, comment_trade_count, comment_indicators
+                )
+        except Exception as e:
+            LOGGER.error("Error during fraud check: %s", e)
+
     # Reply with confirmation
     try:
         template = TEMPLATES.load("trade_confirmation")
