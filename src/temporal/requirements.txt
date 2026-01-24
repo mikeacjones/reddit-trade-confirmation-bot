@@ -1,0 +1,9 @@
+# Temporal SDK
+temporalio>=1.7.0
+
+# Reddit API
+praw>=7.7.1
+prawcore>=2.4.0
+
+# Environment
+python-dotenv>=1.0.0
