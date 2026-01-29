@@ -26,9 +26,14 @@ import os
 import sys
 from datetime import timedelta
 
-from temporalio.client import Client, Schedule, ScheduleSpec, ScheduleCalendarSpec
-from temporalio.client import ScheduleActionStartWorkflow
-from temporalio.common import RetryPolicy
+from temporalio.client import (
+    Client,
+    Schedule,
+    ScheduleSpec,
+    ScheduleCalendarSpec,
+    ScheduleActionStartWorkflow,
+    ScheduleRange,
+)
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,8 +43,8 @@ from temporal.workflows import (
     MonthlyPostWorkflow,
     LockSubmissionsWorkflow,
 )
-from temporal.activities import get_current_submission_id
-from temporal.shared import LOGGER, TASK_QUEUE, SUBREDDIT_NAME, get_reddit_client, get_bot_user
+from temporal.shared import LOGGER, TASK_QUEUE, SUBREDDIT_NAME
+from temporal.activities.reddit import get_reddit_client, get_bot_user
 
 
 async def get_client() -> Client:
@@ -67,9 +72,9 @@ async def setup_schedules():
                 spec=ScheduleSpec(
                     calendars=[
                         ScheduleCalendarSpec(
-                            day_of_month=[1],
-                            hour=[0],
-                            minute=[0],
+                            day_of_month=[ScheduleRange(start=1)],
+                            hour=[ScheduleRange(start=0)],
+                            minute=[ScheduleRange(start=0)],
                         )
                     ]
                 ),
@@ -95,9 +100,9 @@ async def setup_schedules():
                 spec=ScheduleSpec(
                     calendars=[
                         ScheduleCalendarSpec(
-                            day_of_month=[5],
-                            hour=[0],
-                            minute=[0],
+                            day_of_month=[ScheduleRange(start=5)],
+                            hour=[ScheduleRange(start=0)],
+                            minute=[ScheduleRange(start=0)],
                         )
                     ]
                 ),
@@ -213,7 +218,8 @@ async def show_status():
 
     # List schedules
     LOGGER.info("\nSchedules:")
-    async for schedule in client.list_schedules():
+    schedules = await client.list_schedules()
+    async for schedule in schedules:
         LOGGER.info(f"  - {schedule.id}")
 
 

@@ -1,15 +1,19 @@
-"""Shared configuration and utilities for Temporal bot."""
+"""Shared configuration for Temporal bot.
+
+This module contains only workflow-safe imports (no praw/network libraries).
+For Reddit-related utilities, see activities/reddit.py.
+"""
 
 import os
 import re
 import logging
 import sys
+from datetime import timedelta
 from typing import Optional
 from dataclasses import dataclass
 
-import praw
-import prawcore.exceptions
 from dotenv import load_dotenv
+from temporalio.common import RetryPolicy
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +28,45 @@ TASK_QUEUE = "trade-confirmation-bot"
 
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
 FLAIR_TEMPLATE_PATTERN = re.compile(r"Trades: ((\d+)-(\d+))")
+
+# ============================================================================
+# Retry Policies
+# ============================================================================
+
+# Error types that indicate bugs/config issues - retrying won't help
+NON_RETRYABLE_ERRORS = [
+    # Programming/logic errors
+    "TypeError",
+    "ValueError",
+    "KeyError",
+    "AttributeError",
+    "IndexError",
+    "AssertionError",
+    # Reddit API errors that indicate bugs, not transient issues
+    "prawcore.exceptions.Forbidden",  # Permission denied - config issue
+    "prawcore.exceptions.NotFound",  # Resource doesn't exist
+    "prawcore.exceptions.BadRequest",  # Malformed request - bug
+]
+
+# Standard retry policy for Reddit API calls
+# - Retries transient failures (network errors, rate limits, 5xx errors)
+# - Does NOT retry programming errors to prevent infinite loops
+REDDIT_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=5,
+    backoff_coefficient=2.0,
+    non_retryable_error_types=NON_RETRYABLE_ERRORS,
+)
+
+# More conservative retry policy for less critical operations
+REDDIT_RETRY_POLICY_CONSERVATIVE = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
+    backoff_coefficient=2.0,
+    non_retryable_error_types=NON_RETRYABLE_ERRORS,
+)
 
 # ============================================================================
 # Logging Setup
@@ -67,33 +110,6 @@ SECRETS = {
     "PUSHOVER_APP_TOKEN": os.getenv("PUSHOVER_APP_TOKEN", ""),
     "PUSHOVER_USER_TOKEN": os.getenv("PUSHOVER_USER_TOKEN", ""),
 }
-
-
-# ============================================================================
-# Reddit Client (created per-activity to avoid serialization issues)
-# ============================================================================
-
-
-def get_reddit_client() -> praw.Reddit:
-    """Create a fresh Reddit client instance."""
-    return praw.Reddit(
-        client_id=SECRETS["REDDIT_CLIENT_ID"],
-        client_secret=SECRETS["REDDIT_CLIENT_SECRET"],
-        user_agent=SECRETS["REDDIT_USER_AGENT"],
-        username=SECRETS["REDDIT_USERNAME"],
-        password=SECRETS["REDDIT_PASSWORD"],
-    )
-
-
-def get_subreddit(reddit: praw.Reddit) -> praw.models.Subreddit:
-    """Get the configured subreddit."""
-    return reddit.subreddit(SUBREDDIT_NAME)
-
-
-def get_bot_user(reddit: praw.Reddit):
-    """Get the bot user."""
-    return reddit.user.me()
-
 
 # ============================================================================
 # Data Classes for Workflow Communication
@@ -140,45 +156,10 @@ class FlairUpdateResult:
 
 
 # ============================================================================
-# Utility Functions
+# Utility Functions (workflow-safe - no praw)
 # ============================================================================
-
-
-def should_process_redditor(redditor) -> bool:
-    """Check if redditor should be processed."""
-    try:
-        if redditor is None:
-            return False
-        if not hasattr(redditor, "id"):
-            return False
-        reddit = get_reddit_client()
-        bot_user = get_bot_user(reddit)
-        if redditor.id == bot_user.id:
-            return False
-        if hasattr(redditor, "is_suspended") and redditor.is_suspended:
-            return False
-        return True
-    except prawcore.exceptions.NotFound:
-        return False
 
 
 def is_confirming_trade(comment_body: str) -> bool:
     """Check if comment is confirming a trade."""
     return "confirmed" in comment_body.lower()
-
-
-def serialize_comment(comment: praw.models.Comment) -> CommentData:
-    """Convert a PRAW comment to serializable data."""
-    return CommentData(
-        id=comment.id,
-        body=comment.body,
-        body_html=comment.body_html,
-        author_name=comment.author.name if comment.author else "",
-        author_flair_text=comment.author_flair_text,
-        permalink=comment.permalink,
-        created_utc=comment.created_utc,
-        is_root=comment.is_root,
-        parent_id=comment.parent_id,
-        submission_id=comment.submission.id,
-        saved=comment.saved,
-    )

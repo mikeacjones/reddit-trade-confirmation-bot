@@ -28,23 +28,18 @@ from temporal.workflows import (
     MonthlyPostWorkflow,
     LockSubmissionsWorkflow,
 )
-from temporal.workflows.comment_processing import SetDefaultFlairWorkflow
 from temporal.activities import (
     fetch_new_comments,
-    fetch_comment_by_id,
     validate_confirmation,
-    update_user_flair,
+    increment_user_flair,
     mark_comment_saved,
     reply_to_comment,
-    check_monthly_post_exists,
-    get_current_submission_id,
+    post_confirmation_reply,
     create_monthly_post,
     unsticky_previous_post,
     lock_previous_submissions,
-    set_default_flair,
     send_pushover_notification,
 )
-from temporal.activities.reddit import post_confirmation_reply
 from temporal.shared import LOGGER, TASK_QUEUE, SUBREDDIT_NAME
 
 
@@ -64,24 +59,19 @@ async def main():
         workflows=[
             CommentPollingWorkflow,
             ProcessConfirmationWorkflow,
-            SetDefaultFlairWorkflow,
             MonthlyPostWorkflow,
             LockSubmissionsWorkflow,
         ],
         activities=[
             fetch_new_comments,
-            fetch_comment_by_id,
             validate_confirmation,
-            update_user_flair,
+            increment_user_flair,
             mark_comment_saved,
             reply_to_comment,
             post_confirmation_reply,
-            check_monthly_post_exists,
-            get_current_submission_id,
             create_monthly_post,
             unsticky_previous_post,
             lock_previous_submissions,
-            set_default_flair,
             send_pushover_notification,
         ],
     )

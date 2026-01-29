@@ -3,24 +3,14 @@
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from ..activities import (
-        check_monthly_post_exists,
         unsticky_previous_post,
         create_monthly_post,
         send_pushover_notification,
     )
-    from ..shared import SUBREDDIT_NAME
-
-
-REDDIT_RETRY_POLICY = RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=30),
-    maximum_attempts=3,
-    backoff_coefficient=2.0,
-)
+    from ..shared import SUBREDDIT_NAME, REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
 
 
 @workflow.defn
@@ -39,21 +29,13 @@ class MonthlyPostWorkflow:
     async def run(self) -> dict:
         """Create the monthly confirmation thread.
 
+        The create_monthly_post activity handles idempotency internally -
+        if a post already exists for this month, it returns that ID.
+
         Returns:
-            Result with status and submission_id if created.
+            Result with status and submission_id.
         """
         workflow.logger.info(f"Starting monthly post workflow for r/{SUBREDDIT_NAME}")
-
-        # Check if already created (idempotency check)
-        exists = await workflow.execute_activity(
-            check_monthly_post_exists,
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        if exists:
-            workflow.logger.info("Monthly post already exists, skipping creation")
-            return {"status": "already_exists"}
 
         # Send notification that we're creating the post
         await workflow.execute_activity(
@@ -69,30 +51,21 @@ class MonthlyPostWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        # Create the new monthly post
+        # Create the new monthly post (idempotent - returns existing if already created)
         submission_id = await workflow.execute_activity(
             create_monthly_post,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        if not submission_id:
-            # Notify about failure
-            await workflow.execute_activity(
-                send_pushover_notification,
-                args=[f"Failed to create monthly post for r/{SUBREDDIT_NAME}"],
-                start_to_close_timeout=timedelta(seconds=30),
-            )
-            return {"status": "failed"}
-
         # Notify about success
         await workflow.execute_activity(
             send_pushover_notification,
-            args=[f"Created monthly post for r/{SUBREDDIT_NAME}: {submission_id}"],
+            args=[f"Monthly post for r/{SUBREDDIT_NAME}: {submission_id}"],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        workflow.logger.info(f"Created monthly post: {submission_id}")
+        workflow.logger.info(f"Monthly post: {submission_id}")
 
         return {
             "status": "created",

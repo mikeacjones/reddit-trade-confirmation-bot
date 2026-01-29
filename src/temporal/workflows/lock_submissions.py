@@ -3,22 +3,13 @@
 from datetime import timedelta
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from ..activities import (
         lock_previous_submissions,
         send_pushover_notification,
     )
-    from ..shared import SUBREDDIT_NAME
-
-
-REDDIT_RETRY_POLICY = RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=30),
-    maximum_attempts=3,
-    backoff_coefficient=2.0,
-)
+    from ..shared import SUBREDDIT_NAME, REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
 
 
 @workflow.defn
