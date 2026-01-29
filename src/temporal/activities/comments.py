@@ -244,7 +244,9 @@ async def post_confirmation_reply(
     comment_id: str,
     parent_author: str,
     confirmer: str,
+    parent_old_flair: Optional[str],
     parent_new_flair: Optional[str],
+    confirmer_old_flair: Optional[str],
     confirmer_new_flair: Optional[str],
 ) -> str:
     """Post a trade confirmation reply.
@@ -261,7 +263,9 @@ async def post_confirmation_reply(
     reply_text = template.format(
         comment=comment,
         parent_comment=parent_comment,
+        old_parent_flair=parent_old_flair or "unknown",
         new_parent_flair=parent_new_flair or "unknown",
+        old_comment_flair=confirmer_old_flair or "unknown",
         new_comment_flair=confirmer_new_flair or "unknown",
     )
 
