@@ -5,6 +5,7 @@ not in workflows (due to Temporal sandbox restrictions).
 """
 
 import praw
+import praw.models
 
 from ..shared import SECRETS, SUBREDDIT_NAME, CommentData
 

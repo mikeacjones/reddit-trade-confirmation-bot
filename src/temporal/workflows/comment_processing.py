@@ -5,16 +5,9 @@ from typing import Optional
 
 from temporalio import workflow
 
-with workflow.unsafe.imports_passed_through():
-    from ..activities import (
-        fetch_new_comments,
-        validate_confirmation,
-        increment_user_flair,
-        mark_comment_saved,
-        reply_to_comment,
-        post_confirmation_reply,
-    )
-    from ..shared import REDDIT_RETRY_POLICY
+from ..activities import comments as comment_activities
+from ..activities import flair as flair_activities
+from ..shared import REDDIT_RETRY_POLICY
 
 
 @workflow.defn
@@ -60,7 +53,7 @@ class CommentPollingWorkflow:
         while not self._should_stop:
             # Fetch new comments - let exceptions propagate after retries exhausted
             comments = await workflow.execute_activity(
-                fetch_new_comments,
+                comment_activities.fetch_new_comments,
                 args=[submission_id, self._last_seen_id],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=30),
@@ -116,7 +109,7 @@ class ProcessConfirmationWorkflow:
 
         # Validate the confirmation
         validation = await workflow.execute_activity(
-            validate_confirmation,
+            comment_activities.validate_confirmation,
             args=[comment_data],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
@@ -124,7 +117,7 @@ class ProcessConfirmationWorkflow:
 
         # Mark as processed regardless of outcome
         await workflow.execute_activity(
-            mark_comment_saved,
+            comment_activities.mark_comment_saved,
             args=[comment_id],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
@@ -136,12 +129,16 @@ class ProcessConfirmationWorkflow:
             if reason:
                 # Reply with error template
                 await workflow.execute_activity(
-                    reply_to_comment,
+                    comment_activities.reply_to_comment,
                     args=[comment_id, reason, {"comment": comment_data}],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
-                return {"status": "rejected", "reason": reason, "comment_id": comment_id}
+                return {
+                    "status": "rejected",
+                    "reason": reason,
+                    "comment_id": comment_id,
+                }
 
             return {"status": "skipped", "comment_id": comment_id}
 
@@ -153,14 +150,14 @@ class ProcessConfirmationWorkflow:
         # Atomically increment both users' flairs
         # Each activity reads current flair and increments in one operation
         parent_result = await workflow.execute_activity(
-            increment_user_flair,
+            flair_activities.increment_user_flair,
             args=[parent_author],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
         confirmer_result = await workflow.execute_activity(
-            increment_user_flair,
+            flair_activities.increment_user_flair,
             args=[confirmer],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
@@ -169,7 +166,7 @@ class ProcessConfirmationWorkflow:
         # Mark parent comment as saved too
         if parent_comment_id:
             await workflow.execute_activity(
-                mark_comment_saved,
+                comment_activities.mark_comment_saved,
                 args=[parent_comment_id],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
@@ -177,7 +174,7 @@ class ProcessConfirmationWorkflow:
 
         # Post confirmation reply
         await workflow.execute_activity(
-            post_confirmation_reply,
+            comment_activities.post_confirmation_reply,
             args=[
                 comment_id,
                 parent_author,
@@ -204,5 +201,3 @@ class ProcessConfirmationWorkflow:
             "parent_new_flair": parent_result.get("new_flair"),
             "confirmer_new_flair": confirmer_result.get("new_flair"),
         }
-
-
