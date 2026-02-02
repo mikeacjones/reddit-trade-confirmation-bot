@@ -2,3 +2,4 @@
 log.txt
 .terraform*
 testing.py
+__pycache__/
