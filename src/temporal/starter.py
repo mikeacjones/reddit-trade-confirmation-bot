@@ -29,22 +29,21 @@ from datetime import timedelta
 from temporalio.client import (
     Client,
     Schedule,
-    ScheduleSpec,
-    ScheduleCalendarSpec,
     ScheduleActionStartWorkflow,
+    ScheduleCalendarSpec,
     ScheduleRange,
+    ScheduleSpec,
 )
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from temporal.shared import LOGGER, SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
-    MonthlyPostWorkflow,
     LockSubmissionsWorkflow,
+    MonthlyPostWorkflow,
 )
-from temporal.shared import LOGGER, TASK_QUEUE, SUBREDDIT_NAME
-from temporal.activities.reddit import get_reddit_client, get_bot_user
 
 
 async def get_client() -> Client:
@@ -80,7 +79,9 @@ async def setup_schedules():
                 ),
             ),
         )
-        LOGGER.info("Created schedule: monthly-post-schedule (1st of month at 00:00 UTC)")
+        LOGGER.info(
+            "Created schedule: monthly-post-schedule (1st of month at 00:00 UTC)"
+        )
     except Exception as e:
         if "already exists" in str(e).lower():
             LOGGER.info("Schedule monthly-post-schedule already exists")
@@ -108,7 +109,9 @@ async def setup_schedules():
                 ),
             ),
         )
-        LOGGER.info("Created schedule: lock-submissions-schedule (5th of month at 00:00 UTC)")
+        LOGGER.info(
+            "Created schedule: lock-submissions-schedule (5th of month at 00:00 UTC)"
+        )
     except Exception as e:
         if "already exists" in str(e).lower():
             LOGGER.info("Schedule lock-submissions-schedule already exists")
@@ -119,33 +122,24 @@ async def setup_schedules():
 
 
 async def start_polling():
-    """Start the comment polling workflow for the current submission."""
+    """Start the comment polling workflow for the subreddit."""
     client = await get_client()
 
-    # Get current submission ID from Reddit
-    reddit = get_reddit_client()
-    bot_user = get_bot_user(reddit)
+    workflow_id = f"poll-{SUBREDDIT_NAME}"
 
-    try:
-        current_submission = next(bot_user.submissions.new(limit=1))
-        submission_id = current_submission.id
-    except StopIteration:
-        LOGGER.error("No submissions found. Create a monthly post first.")
-        return
-
-    workflow_id = f"poll-{submission_id}"
-
-    LOGGER.info(f"Starting comment polling for submission {submission_id}")
+    LOGGER.info(f"Starting comment polling for r/{SUBREDDIT_NAME}")
 
     try:
         handle = await client.start_workflow(
             CommentPollingWorkflow.run,
-            args=[submission_id, 30],  # 30 second poll interval
+            args=[30],  # 30 second poll interval
             id=workflow_id,
             task_queue=TASK_QUEUE,
         )
         LOGGER.info(f"Started polling workflow: {workflow_id}")
-        LOGGER.info(f"View in Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
+        LOGGER.info(
+            f"View in Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}"
+        )
     except Exception as e:
         if "already started" in str(e).lower() or "already exists" in str(e).lower():
             LOGGER.info(f"Polling workflow {workflow_id} is already running")
@@ -193,28 +187,19 @@ async def show_status():
 
     LOGGER.info("Checking workflow status...")
 
-    # Get current submission
-    reddit = get_reddit_client()
-    bot_user = get_bot_user(reddit)
+    workflow_id = f"poll-{SUBREDDIT_NAME}"
 
     try:
-        current_submission = next(bot_user.submissions.new(limit=1))
-        submission_id = current_submission.id
-        workflow_id = f"poll-{submission_id}"
+        handle = client.get_workflow_handle(workflow_id)
+        desc = await handle.describe()
+        LOGGER.info(f"Polling workflow: {desc.status.name}")
 
-        try:
-            handle = client.get_workflow_handle(workflow_id)
-            desc = await handle.describe()
-            LOGGER.info(f"Polling workflow: {desc.status.name}")
-
-            # Query for status
-            status = await handle.query(CommentPollingWorkflow.get_status)
-            LOGGER.info(f"  Processed comments: {status['processed_count']}")
-            LOGGER.info(f"  Last seen ID: {status['last_seen_id']}")
-        except Exception as e:
-            LOGGER.info(f"Polling workflow not found: {e}")
-    except StopIteration:
-        LOGGER.info("No submissions found")
+        # Query for status
+        status = await handle.query(CommentPollingWorkflow.get_status)
+        LOGGER.info(f"  Processed comments: {status['processed_count']}")
+        LOGGER.info(f"  Last seen ID: {status['last_seen_id']}")
+    except Exception as e:
+        LOGGER.info(f"Polling workflow not found: {e}")
 
     # List schedules
     LOGGER.info("\nSchedules:")

@@ -11,6 +11,8 @@ from ..shared import (
     ValidationResult,
     is_confirming_trade,
 )
+from .flair import FlairManager
+from .helpers import TemplateManager
 from .reddit import (
     get_bot_user,
     get_reddit_client,
@@ -18,16 +20,13 @@ from .reddit import (
     serialize_comment,
     should_process_redditor,
 )
-from .flair import FlairManager
-from .helpers import TemplateManager
 
 
 @activity.defn
 async def fetch_new_comments(
-    submission_id: str,
     last_seen_id: Optional[str] = None,
 ) -> list[dict]:
-    """Fetch new comments from a submission.
+    """Fetch new comments from bot submissions across the subreddit.
 
     Returns list of serialized CommentData dicts for comments that need processing.
     Filters out and marks as saved comments that clearly don't need child workflows.
@@ -35,21 +34,15 @@ async def fetch_new_comments(
     """
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
-    submission = reddit.submission(id=submission_id)
+    subreddit = get_subreddit(reddit)
 
-    activity.heartbeat("Fetching comments from submission")
-
-    submission.comment_sort = "new"
-    submission.comments.replace_more(limit=0)
-
-    # Check if this is the current stickied thread
-    is_stickied = submission.stickied
+    activity.heartbeat("Fetching comments from subreddit")
 
     comments = []
     skipped_comments = []  # Comments to mark as saved without processing
     processed_count = 0
 
-    for comment in submission.comments.list():
+    for comment in subreddit.comments(limit=100):
         # Heartbeat every 50 comments to signal we're still alive
         processed_count += 1
         if processed_count % 50 == 0:
@@ -64,6 +57,14 @@ async def fetch_new_comments(
         if comment.saved:
             continue
 
+        # Skip if not on a bot submission
+        if comment.submission.author != bot_user:
+            continue
+
+        # Skip if submission is locked
+        if comment.submission.locked:
+            continue
+
         # Skip removed comments
         if comment.banned_by is not None:
             continue
@@ -73,6 +74,9 @@ async def fetch_new_comments(
             continue
 
         comment_body_lower = comment.body.lower()
+
+        # Check if this is the current stickied thread
+        is_stickied = comment.submission.stickied
 
         # Filter logic to avoid unnecessary child workflows
         if comment.is_root:
@@ -84,7 +88,10 @@ async def fetch_new_comments(
             # Old thread - still needs processing
         else:
             # Non-root comments: only process if they contain "confirmed" or "approved"
-            if "confirmed" not in comment_body_lower and "approved" not in comment_body_lower:
+            if (
+                "confirmed" not in comment_body_lower
+                and "approved" not in comment_body_lower
+            ):
                 skipped_comments.append(comment)
                 continue
 
@@ -95,10 +102,9 @@ async def fetch_new_comments(
         comment.save()
 
     LOGGER.info(
-        "Fetched %d comments for processing, skipped %d from submission %s",
+        "Fetched %d comments for processing, skipped %d from subreddit",
         len(comments),
         len(skipped_comments),
-        submission_id,
     )
     return comments
 

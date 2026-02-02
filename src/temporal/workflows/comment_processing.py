@@ -38,23 +38,22 @@ class CommentPollingWorkflow:
         }
 
     @workflow.run
-    async def run(self, submission_id: str, poll_interval_seconds: int = 30) -> dict:
+    async def run(self, poll_interval_seconds: int = 30) -> dict:
         """Run the comment polling loop.
 
         Args:
-            submission_id: The Reddit submission ID to poll for comments.
             poll_interval_seconds: How often to poll for new comments.
 
         Returns:
             Final status when stopped.
         """
-        workflow.logger.info(f"Starting comment polling for submission {submission_id}")
+        workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
             # Fetch new comments - let exceptions propagate after retries exhausted
             comments = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
-                args=[submission_id, self._last_seen_id],
+                args=[self._last_seen_id],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,

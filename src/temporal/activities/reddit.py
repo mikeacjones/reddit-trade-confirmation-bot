@@ -9,16 +9,21 @@ import praw.models
 
 from ..shared import SECRETS, SUBREDDIT_NAME, CommentData
 
+_reddit_client: praw.Reddit | None = None
+
 
 def get_reddit_client() -> praw.Reddit:
-    """Create a fresh Reddit client instance."""
-    return praw.Reddit(
-        client_id=SECRETS["REDDIT_CLIENT_ID"],
-        client_secret=SECRETS["REDDIT_CLIENT_SECRET"],
-        user_agent=SECRETS["REDDIT_USER_AGENT"],
-        username=SECRETS["REDDIT_USERNAME"],
-        password=SECRETS["REDDIT_PASSWORD"],
-    )
+    """Get the shared Reddit client instance."""
+    global _reddit_client
+    if _reddit_client is None:
+        _reddit_client = praw.Reddit(
+            client_id=SECRETS["REDDIT_CLIENT_ID"],
+            client_secret=SECRETS["REDDIT_CLIENT_SECRET"],
+            user_agent=SECRETS["REDDIT_USER_AGENT"],
+            username=SECRETS["REDDIT_USERNAME"],
+            password=SECRETS["REDDIT_PASSWORD"],
+        )
+    return _reddit_client
 
 
 def get_subreddit(reddit: praw.Reddit) -> praw.models.Subreddit:
@@ -26,9 +31,12 @@ def get_subreddit(reddit: praw.Reddit) -> praw.models.Subreddit:
     return reddit.subreddit(SUBREDDIT_NAME)
 
 
-def get_bot_user(reddit: praw.Reddit):
+def get_bot_user(reddit: praw.Reddit) -> praw.models.Redditor:
     """Get the bot user."""
-    return reddit.user.me()
+    user = reddit.user.me()
+    if user is None:
+        raise RuntimeError("Reddit client is in read-only mode - not authenticated")
+    return user
 
 
 def should_process_redditor(redditor, bot_user) -> bool:

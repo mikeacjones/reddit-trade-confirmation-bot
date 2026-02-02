@@ -116,9 +116,10 @@ python -m temporal.starter status
 
 ### CommentPollingWorkflow
 
-Continuously polls for new comments in the current confirmation thread.
+Continuously polls for new comments across all bot submissions in the subreddit.
 
 - Runs indefinitely with a configurable poll interval (default 30s)
+- Monitors all submissions created by the bot (current and previous months)
 - Spawns child `ProcessConfirmationWorkflow` for each new comment
 - Uses comment ID as child workflow ID for idempotency
 - Can be stopped via signal
@@ -164,7 +165,7 @@ All Reddit API calls are wrapped in activities for:
 
 ### Reddit Activities
 
-- `fetch_new_comments(submission_id, last_seen_id)` - Get new comments
+- `fetch_new_comments(last_seen_id)` - Get new comments from bot submissions
 - `validate_confirmation(comment_data)` - Validate a confirmation
 - `update_user_flair(username)` - Increment user's trade flair
 - `mark_comment_saved(comment_id)` - Mark comment as processed
