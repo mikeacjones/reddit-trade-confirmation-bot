@@ -276,12 +276,20 @@ async def post_confirmation_reply(
     subreddit = get_subreddit(reddit)
     comment = reddit.comment(id=comment_id)
 
-    parent_comment = comment.parent()
     template = TemplateManager.load("trade_confirmation", subreddit)
 
+    # Create simple objects with author.name for template compatibility
+    class Author:
+        def __init__(self, name: str):
+            self.name = name
+
+    class CommentStub:
+        def __init__(self, author_name: str):
+            self.author = Author(author_name)
+
     reply_text = template.format(
-        comment=comment,
-        parent_comment=parent_comment,
+        comment=CommentStub(confirmer),
+        parent_comment=CommentStub(parent_author),
         old_parent_flair=parent_old_flair or "unknown",
         new_parent_flair=parent_new_flair or "unknown",
         old_comment_flair=confirmer_old_flair or "unknown",
