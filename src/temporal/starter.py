@@ -192,6 +192,8 @@ async def show_status():
     try:
         handle = client.get_workflow_handle(workflow_id)
         desc = await handle.describe()
+        if desc.status is None:
+            raise RuntimeError(f"Workflow {workflow_id} has no status")
         LOGGER.info(f"Polling workflow: {desc.status.name}")
 
         # Query for status
