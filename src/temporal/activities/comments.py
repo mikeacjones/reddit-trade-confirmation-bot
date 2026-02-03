@@ -42,9 +42,9 @@ async def fetch_new_comments(
     processed_count = 0
 
     for comment in subreddit.comments(limit=100):
-        # Heartbeat every 50 comments to signal we're still alive
+        # Heartbeat every 10 comments to signal we're still alive
         processed_count += 1
-        if processed_count % 50 == 0:
+        if processed_count % 10 == 0:
             activity.heartbeat(f"Processed {processed_count} comments")
 
         # Skip if we've already seen this comment

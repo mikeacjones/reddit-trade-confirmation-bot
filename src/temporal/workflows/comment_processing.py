@@ -55,7 +55,7 @@ class CommentPollingWorkflow:
                 comment_activities.fetch_new_comments,
                 args=[self._last_seen_id],
                 start_to_close_timeout=timedelta(seconds=120),
-                heartbeat_timeout=timedelta(seconds=30),
+                heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
