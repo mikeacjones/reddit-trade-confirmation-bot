@@ -4,13 +4,13 @@ This module contains only workflow-safe imports (no praw/network libraries).
 For Reddit-related utilities, see activities/reddit.py.
 """
 
+import logging
 import os
 import re
-import logging
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
-from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from temporalio.common import RetryPolicy
@@ -54,7 +54,6 @@ NON_RETRYABLE_ERRORS = [
 REDDIT_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=30),
-    maximum_attempts=5,
     backoff_coefficient=2.0,
     non_retryable_error_types=NON_RETRYABLE_ERRORS,
 )
