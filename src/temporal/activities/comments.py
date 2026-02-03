@@ -240,7 +240,9 @@ async def reply_to_comment(
         reply_text = template
 
     reply = comment.reply(reply_text)
-    reply.save()
+    if reply is None:
+        raise RuntimeError("Confirmation reply failed to post")
+
     LOGGER.info("Replied to comment: https://reddit.com%s", reply.permalink)
     return reply.id
 
@@ -276,6 +278,8 @@ async def post_confirmation_reply(
     )
 
     reply = comment.reply(reply_text)
-    reply.save()
+    if reply is None:
+        raise RuntimeError("Confirmation reply failed to post")
+
     LOGGER.info("Trade confirmed: https://reddit.com%s", reply.permalink)
     return reply.id
