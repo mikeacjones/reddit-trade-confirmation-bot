@@ -22,6 +22,7 @@ Environment variables:
 """
 
 import asyncio
+import logging
 import os
 import sys
 
@@ -37,7 +38,10 @@ from temporalio.client import (
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from temporal.shared import LOGGER, SUBREDDIT_NAME, TASK_QUEUE
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
     LockSubmissionsWorkflow,
@@ -55,7 +59,7 @@ async def setup_schedules():
     """Set up the scheduled workflows."""
     client = await get_client()
 
-    LOGGER.info("Setting up schedules...")
+    logger.info("Setting up schedules...")
 
     # Monthly post schedule - 1st of each month at 00:00 UTC
     try:
@@ -78,12 +82,12 @@ async def setup_schedules():
                 ),
             ),
         )
-        LOGGER.info(
+        logger.info(
             "Created schedule: monthly-post-schedule (1st of month at 00:00 UTC)"
         )
     except Exception as e:
         if "already exists" in str(e).lower():
-            LOGGER.info("Schedule monthly-post-schedule already exists")
+            logger.info("Schedule monthly-post-schedule already exists")
         else:
             raise
 
@@ -108,16 +112,16 @@ async def setup_schedules():
                 ),
             ),
         )
-        LOGGER.info(
+        logger.info(
             "Created schedule: lock-submissions-schedule (5th of month at 00:00 UTC)"
         )
     except Exception as e:
         if "already exists" in str(e).lower():
-            LOGGER.info("Schedule lock-submissions-schedule already exists")
+            logger.info("Schedule lock-submissions-schedule already exists")
         else:
             raise
 
-    LOGGER.info("Schedules setup complete")
+    logger.info("Schedules setup complete")
 
 
 async def start_polling():
@@ -126,7 +130,7 @@ async def start_polling():
 
     workflow_id = f"poll-{SUBREDDIT_NAME}"
 
-    LOGGER.info(f"Starting comment polling for r/{SUBREDDIT_NAME}")
+    logger.info(f"Starting comment polling for r/{SUBREDDIT_NAME}")
 
     try:
         await client.start_workflow(
@@ -135,13 +139,13 @@ async def start_polling():
             id=workflow_id,
             task_queue=TASK_QUEUE,
         )
-        LOGGER.info(f"Started polling workflow: {workflow_id}")
-        LOGGER.info(
+        logger.info(f"Started polling workflow: {workflow_id}")
+        logger.info(
             f"View in Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}"
         )
     except Exception as e:
         if "already started" in str(e).lower() or "already exists" in str(e).lower():
-            LOGGER.info(f"Polling workflow {workflow_id} is already running")
+            logger.info(f"Polling workflow {workflow_id} is already running")
         else:
             raise
 
@@ -150,7 +154,7 @@ async def trigger_monthly_post():
     """Manually trigger the monthly post workflow."""
     client = await get_client()
 
-    LOGGER.info("Triggering monthly post workflow...")
+    logger.info("Triggering monthly post workflow...")
 
     handle = await client.start_workflow(
         MonthlyPostWorkflow.run,
@@ -159,7 +163,7 @@ async def trigger_monthly_post():
     )
 
     result = await handle.result()
-    LOGGER.info(f"Monthly post result: {result}")
+    logger.info(f"Monthly post result: {result}")
     return result
 
 
@@ -167,7 +171,7 @@ async def trigger_lock_submissions():
     """Manually trigger the lock submissions workflow."""
     client = await get_client()
 
-    LOGGER.info("Triggering lock submissions workflow...")
+    logger.info("Triggering lock submissions workflow...")
 
     handle = await client.start_workflow(
         LockSubmissionsWorkflow.run,
@@ -176,7 +180,7 @@ async def trigger_lock_submissions():
     )
 
     result = await handle.result()
-    LOGGER.info(f"Lock submissions result: {result}")
+    logger.info(f"Lock submissions result: {result}")
     return result
 
 
@@ -184,7 +188,7 @@ async def show_status():
     """Show status of running workflows."""
     client = await get_client()
 
-    LOGGER.info("Checking workflow status...")
+    logger.info("Checking workflow status...")
 
     workflow_id = f"poll-{SUBREDDIT_NAME}"
 
@@ -193,20 +197,20 @@ async def show_status():
         desc = await handle.describe()
         if desc.status is None:
             raise RuntimeError(f"Workflow {workflow_id} has no status")
-        LOGGER.info(f"Polling workflow: {desc.status.name}")
+        logger.info(f"Polling workflow: {desc.status.name}")
 
         # Query for status
         status = await handle.query(CommentPollingWorkflow.get_status)
-        LOGGER.info(f"  Processed comments: {status['processed_count']}")
-        LOGGER.info(f"  Last seen ID: {status['last_seen_id']}")
+        logger.info(f"  Processed comments: {status['processed_count']}")
+        logger.info(f"  Last seen ID: {status['last_seen_id']}")
     except Exception as e:
-        LOGGER.info(f"Polling workflow not found: {e}")
+        logger.info(f"Polling workflow not found: {e}")
 
     # List schedules
-    LOGGER.info("\nSchedules:")
+    logger.info("\nSchedules:")
     schedules = await client.list_schedules()
     async for schedule in schedules:
-        LOGGER.info(f"  - {schedule.id}")
+        logger.info(f"  - {schedule.id}")
 
 
 def print_usage():

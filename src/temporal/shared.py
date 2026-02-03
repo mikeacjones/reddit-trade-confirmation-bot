@@ -4,10 +4,8 @@ This module contains only workflow-safe imports (no praw/network libraries).
 For Reddit-related utilities, see activities/reddit.py.
 """
 
-import logging
 import os
 import re
-import sys
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
@@ -66,35 +64,6 @@ REDDIT_RETRY_POLICY_CONSERVATIVE = RetryPolicy(
     backoff_coefficient=2.0,
     non_retryable_error_types=NON_RETRYABLE_ERRORS,
 )
-
-# ============================================================================
-# Logging Setup
-# ============================================================================
-
-
-def setup_logger(name: str) -> logging.Logger:
-    """Set up logger with file and console handlers."""
-    formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    # File handler
-    file_handler = logging.FileHandler("log.txt", mode="a")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    # Console handler
-    console_handler = logging.StreamHandler(stream=sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    return logger
-
-
-LOGGER = setup_logger("trade-confirmation-bot")
 
 # ============================================================================
 # Secrets

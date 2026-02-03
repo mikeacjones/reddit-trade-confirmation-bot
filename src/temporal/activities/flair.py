@@ -8,7 +8,6 @@ from temporalio import activity
 from ..shared import (
     FLAIR_PATTERN,
     FLAIR_TEMPLATE_PATTERN,
-    LOGGER,
     FlairUpdateResult,
 )
 from .reddit import get_reddit_client, get_subreddit
@@ -37,7 +36,7 @@ class FlairManager:
                     "template": template["text"],
                     "mod_only": template["mod_only"],
                 }
-                LOGGER.info(
+                activity.logger.info(
                     "Loaded flair template: %d-%d trades", min_trades, max_trades
                 )
 
@@ -95,7 +94,7 @@ class FlairManager:
         """Set user's flair to specific trade count."""
         template = cls._get_flair_template(count, username, subreddit)
         if not template:
-            LOGGER.warning("No flair template found for %d trades", count)
+            activity.logger.warning("No flair template found for %d trades", count)
             return None
 
         new_flair_text = cls._format_flair(template["template"], count)
@@ -132,7 +131,9 @@ async def increment_user_flair(username: str) -> dict:
     new_count = current_count + 1
 
     new_flair = FlairManager.set_flair(username, new_count, subreddit)
-    LOGGER.info("u/%s flair updated: '%s' -> '%s'", username, old_flair, new_flair)
+    activity.logger.info(
+        "u/%s flair updated: '%s' -> '%s'", username, old_flair, new_flair
+    )
 
     return asdict(
         FlairUpdateResult(
@@ -142,5 +143,3 @@ async def increment_user_flair(username: str) -> dict:
             success=new_flair is not None,
         )
     )
-
-

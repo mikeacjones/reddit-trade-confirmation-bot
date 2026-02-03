@@ -7,7 +7,6 @@ from typing import Optional
 from temporalio import activity
 
 from ..shared import (
-    LOGGER,
     ValidationResult,
     is_confirming_trade,
 )
@@ -101,7 +100,7 @@ async def fetch_new_comments(
     for comment in skipped_comments:
         comment.save()
 
-    LOGGER.info(
+    activity.logger.info(
         "Fetched %d comments for processing, skipped %d from subreddit",
         len(comments),
         len(skipped_comments),
@@ -243,7 +242,8 @@ async def reply_to_comment(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    LOGGER.info("Replied to comment: https://reddit.com%s", reply.permalink)
+    reply.save()
+    activity.logger.info("Replied to comment: https://reddit.com%s", reply.permalink)
     return reply.id
 
 
@@ -281,5 +281,6 @@ async def post_confirmation_reply(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    LOGGER.info("Trade confirmed: https://reddit.com%s", reply.permalink)
+    reply.save()
+    activity.logger.info("Trade confirmed: https://reddit.com%s", reply.permalink)
     return reply.id

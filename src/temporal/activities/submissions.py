@@ -5,12 +5,11 @@ from datetime import datetime, timezone
 from temporalio import activity
 
 from ..shared import (
-    LOGGER,
-    SUBREDDIT_NAME,
     MONTHLY_POST_FLAIR_ID,
+    SUBREDDIT_NAME,
 )
-from .reddit import get_reddit_client, get_subreddit, get_bot_user
 from .helpers import TemplateManager
+from .reddit import get_bot_user, get_reddit_client, get_subreddit
 
 
 @activity.defn
@@ -22,12 +21,14 @@ async def unsticky_previous_post() -> bool:
     try:
         previous_submission = next(bot_user.submissions.new(limit=1))
     except StopIteration:
-        LOGGER.info("No previous post to unsticky")
+        activity.logger.info("No previous post to unsticky")
         return True
 
     if previous_submission.stickied:
         previous_submission.mod.sticky(state=False)
-        LOGGER.info("Unstickied previous post: %s", previous_submission.permalink)
+        activity.logger.info(
+            "Unstickied previous post: %s", previous_submission.permalink
+        )
 
     return True
 
@@ -52,7 +53,7 @@ async def create_monthly_post() -> str:
         last_post = next(bot_user.submissions.new(limit=1))
         post_date = datetime.fromtimestamp(last_post.created_utc, tz=timezone.utc)
         if post_date.year == now.year and post_date.month == now.month:
-            LOGGER.info(
+            activity.logger.info(
                 "Monthly post already exists for this month (%s), returning existing ID (idempotent)",
                 last_post.id,
             )
@@ -65,7 +66,7 @@ async def create_monthly_post() -> str:
     post_template = TemplateManager.load("monthly_post", subreddit)
     title_template = TemplateManager.load("monthly_post_title", subreddit)
 
-    LOGGER.info("Creating monthly post for r/%s", SUBREDDIT_NAME)
+    activity.logger.info("Creating monthly post for r/%s", SUBREDDIT_NAME)
 
     # Create new post
     new_submission = subreddit.submit(
@@ -84,7 +85,9 @@ async def create_monthly_post() -> str:
     new_submission.mod.sticky(bottom=False)
     new_submission.mod.suggested_sort(sort="new")
 
-    LOGGER.info("Created monthly post: https://reddit.com%s", new_submission.permalink)
+    activity.logger.info(
+        "Created monthly post: https://reddit.com%s", new_submission.permalink
+    )
     return new_submission.id
 
 
@@ -103,7 +106,7 @@ async def lock_previous_submissions() -> int:
             continue
         if not submission.locked:
             submission.mod.lock()
-            LOGGER.info("Locked: https://reddit.com%s", submission.permalink)
+            activity.logger.info("Locked: https://reddit.com%s", submission.permalink)
             locked_count += 1
 
     return locked_count

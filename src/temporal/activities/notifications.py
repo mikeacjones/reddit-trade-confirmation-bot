@@ -5,7 +5,7 @@ import urllib.parse
 
 from temporalio import activity
 
-from ..shared import SECRETS, LOGGER
+from ..shared import SECRETS
 
 
 @activity.defn
@@ -17,7 +17,7 @@ async def send_pushover_notification(message: str) -> bool:
     Raises exception on failure so Temporal can retry.
     """
     if not SECRETS.get("PUSHOVER_APP_TOKEN") or not SECRETS.get("PUSHOVER_USER_TOKEN"):
-        LOGGER.debug("Pushover not configured, skipping notification")
+        activity.logger.debug("Pushover not configured, skipping notification")
         return True
 
     conn = http.client.HTTPSConnection("api.pushover.net:443")
@@ -25,16 +25,20 @@ async def send_pushover_notification(message: str) -> bool:
         conn.request(
             "POST",
             "/1/messages.json",
-            urllib.parse.urlencode({
-                "token": SECRETS["PUSHOVER_APP_TOKEN"],
-                "user": SECRETS["PUSHOVER_USER_TOKEN"],
-                "message": message,
-            }),
+            urllib.parse.urlencode(
+                {
+                    "token": SECRETS["PUSHOVER_APP_TOKEN"],
+                    "user": SECRETS["PUSHOVER_USER_TOKEN"],
+                    "message": message,
+                }
+            ),
             {"Content-type": "application/x-www-form-urlencoded"},
         )
         response = conn.getresponse()
         if response.status != 200:
-            raise RuntimeError(f"Pushover notification failed with status {response.status}")
+            raise RuntimeError(
+                f"Pushover notification failed with status {response.status}"
+            )
         return True
     finally:
         conn.close()

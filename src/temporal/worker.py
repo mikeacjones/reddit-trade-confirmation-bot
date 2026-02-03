@@ -13,6 +13,7 @@ Environment variables:
 """
 
 import asyncio
+import logging
 import os
 import sys
 
@@ -22,6 +23,9 @@ from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,7 +42,7 @@ from temporal.activities import (
     unsticky_previous_post,
     validate_confirmation,
 )
-from temporal.shared import LOGGER, SUBREDDIT_NAME, TASK_QUEUE
+from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
     LockSubmissionsWorkflow,
@@ -51,11 +55,11 @@ async def main():
     """Start the Temporal worker."""
     temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
 
-    LOGGER.info(f"Connecting to Temporal at {temporal_host}")
+    logger.info(f"Connecting to Temporal at {temporal_host}")
     client = await Client.connect(temporal_host)
 
-    LOGGER.info(f"Starting worker for task queue: {TASK_QUEUE}")
-    LOGGER.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
+    logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
+    logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
 
     worker = Worker(
         client,
@@ -85,12 +89,12 @@ async def main():
         ),
     )
 
-    LOGGER.info("Worker started. Press Ctrl+C to stop.")
+    logger.info("Worker started. Press Ctrl+C to stop.")
 
     try:
         await worker.run()
     except KeyboardInterrupt:
-        LOGGER.info("Worker shutdown requested")
+        logger.info("Worker shutdown requested")
 
 
 if __name__ == "__main__":
