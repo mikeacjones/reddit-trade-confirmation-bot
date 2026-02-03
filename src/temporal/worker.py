@@ -18,29 +18,33 @@ import sys
 
 from temporalio.client import Client
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import (
+    SandboxedWorkflowRunner,
+    SandboxRestrictions,
+)
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from temporal.activities import (
+    create_monthly_post,
+    fetch_new_comments,
+    increment_user_flair,
+    lock_previous_submissions,
+    mark_comment_saved,
+    post_confirmation_reply,
+    reply_to_comment,
+    send_pushover_notification,
+    unsticky_previous_post,
+    validate_confirmation,
+)
+from temporal.shared import LOGGER, SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
-    ProcessConfirmationWorkflow,
-    MonthlyPostWorkflow,
     LockSubmissionsWorkflow,
+    MonthlyPostWorkflow,
+    ProcessConfirmationWorkflow,
 )
-from temporal.activities import (
-    fetch_new_comments,
-    validate_confirmation,
-    increment_user_flair,
-    mark_comment_saved,
-    reply_to_comment,
-    post_confirmation_reply,
-    create_monthly_post,
-    unsticky_previous_post,
-    lock_previous_submissions,
-    send_pushover_notification,
-)
-from temporal.shared import LOGGER, TASK_QUEUE, SUBREDDIT_NAME
 
 
 async def main():
@@ -74,6 +78,11 @@ async def main():
             lock_previous_submissions,
             send_pushover_notification,
         ],
+        workflow_runner=SandboxedWorkflowRunner(
+            restrictions=SandboxRestrictions.default.with_passthrough_modules(
+                "praw", "requests", "urllib3"
+            )
+        ),
     )
 
     LOGGER.info("Worker started. Press Ctrl+C to stop.")
