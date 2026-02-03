@@ -24,7 +24,6 @@ Environment variables:
 import asyncio
 import os
 import sys
-from datetime import timedelta
 
 from temporalio.client import (
     Client,
@@ -130,7 +129,7 @@ async def start_polling():
     LOGGER.info(f"Starting comment polling for r/{SUBREDDIT_NAME}")
 
     try:
-        handle = await client.start_workflow(
+        await client.start_workflow(
             CommentPollingWorkflow.run,
             args=[30],  # 30 second poll interval
             id=workflow_id,
