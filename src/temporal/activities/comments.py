@@ -62,8 +62,9 @@ async def fetch_new_comments(
         if comment.saved:
             continue
 
-        # Skip if not on a bot submission (use cached IDs)
-        submission_id = comment.submission.id
+        # Skip if not on a bot submission (use link_id to avoid lazy loading)
+        # link_id is in format "t3_xxxxx", strip the "t3_" prefix to get submission ID
+        submission_id = comment.link_id[3:]
         if submission_id not in bot_submission_ids:
             continue
 
