@@ -35,6 +35,12 @@ async def fetch_new_comments(
     bot_user = get_bot_user(reddit)
     subreddit = get_subreddit(reddit)
 
+    activity.heartbeat("Fetching bot submissions")
+
+    # Cache bot submission info to avoid lazy-loading each comment's submission
+    bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
+    bot_submission_ids = set(bot_submissions.keys())
+
     activity.heartbeat("Fetching comments from subreddit")
 
     comments = []
@@ -56,12 +62,16 @@ async def fetch_new_comments(
         if comment.saved:
             continue
 
-        # Skip if not on a bot submission
-        if comment.submission.author != bot_user:
+        # Skip if not on a bot submission (use cached IDs)
+        submission_id = comment.submission.id
+        if submission_id not in bot_submission_ids:
             continue
 
+        # Use cached submission to avoid lazy-loading
+        submission = bot_submissions[submission_id]
+
         # Skip if submission is locked
-        if comment.submission.locked:
+        if submission.locked:
             continue
 
         # Skip removed comments
@@ -74,8 +84,8 @@ async def fetch_new_comments(
 
         comment_body_lower = comment.body.lower()
 
-        # Check if this is the current stickied thread
-        is_stickied = comment.submission.stickied
+        # Check if this is the current stickied thread (use cached submission)
+        is_stickied = submission.stickied
 
         # Filter logic to avoid unnecessary child workflows
         if comment.is_root:
