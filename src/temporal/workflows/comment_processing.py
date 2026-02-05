@@ -18,10 +18,14 @@ class CommentPollingWorkflow:
     in the specified submission and spawning child workflows to process them.
     """
 
+    # Continue-as-new after this many iterations to prevent unbounded event history
+    MAX_ITERATIONS = 500
+
     def __init__(self):
         self._should_stop = False
         self._last_seen_id: Optional[str] = None
         self._processed_count = 0
+        self._iterations = 0
 
     @workflow.signal
     def stop(self) -> None:
@@ -38,15 +42,21 @@ class CommentPollingWorkflow:
         }
 
     @workflow.run
-    async def run(self, poll_interval_seconds: int = 30) -> dict:
+    async def run(
+        self,
+        poll_interval_seconds: int = 30,
+        last_seen_id: Optional[str] = None,
+    ) -> dict:
         """Run the comment polling loop.
 
         Args:
             poll_interval_seconds: How often to poll for new comments.
+            last_seen_id: Last processed comment ID (carried over from continue-as-new).
 
         Returns:
             Final status when stopped.
         """
+        self._last_seen_id = last_seen_id
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
@@ -75,6 +85,15 @@ class CommentPollingWorkflow:
 
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=poll_interval_seconds))
+
+            self._iterations += 1
+            if self._iterations >= self.MAX_ITERATIONS:
+                workflow.logger.info(
+                    "Continuing as new after %d iterations", self._iterations
+                )
+                workflow.continue_as_new(
+                    args=[poll_interval_seconds, self._last_seen_id]
+                )
 
         workflow.logger.info("Comment polling stopped")
         return self.get_status()
