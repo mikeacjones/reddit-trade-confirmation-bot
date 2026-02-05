@@ -30,10 +30,12 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleRange,
     ScheduleSpec,
 )
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 # Add src to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -85,11 +87,8 @@ async def setup_schedules():
         logger.info(
             "Created schedule: monthly-post-schedule (1st of month at 00:00 UTC)"
         )
-    except Exception as e:
-        if "already exists" in str(e).lower():
-            logger.info("Schedule monthly-post-schedule already exists")
-        else:
-            raise
+    except ScheduleAlreadyRunningError:
+        logger.info("Schedule monthly-post-schedule already exists")
 
     # Lock submissions schedule - 5th of each month at 00:00 UTC
     try:
@@ -115,11 +114,8 @@ async def setup_schedules():
         logger.info(
             "Created schedule: lock-submissions-schedule (5th of month at 00:00 UTC)"
         )
-    except Exception as e:
-        if "already exists" in str(e).lower():
-            logger.info("Schedule lock-submissions-schedule already exists")
-        else:
-            raise
+    except ScheduleAlreadyRunningError:
+        logger.info("Schedule lock-submissions-schedule already exists")
 
     logger.info("Schedules setup complete")
 
@@ -143,11 +139,8 @@ async def start_polling():
         logger.info(
             f"View in Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}"
         )
-    except Exception as e:
-        if "already started" in str(e).lower() or "already exists" in str(e).lower():
-            logger.info(f"Polling workflow {workflow_id} is already running")
-        else:
-            raise
+    except WorkflowAlreadyStartedError:
+        logger.info(f"Polling workflow {workflow_id} is already running")
 
 
 async def trigger_monthly_post():
