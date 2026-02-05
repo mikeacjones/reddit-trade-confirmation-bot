@@ -10,11 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY src/ ./src/
 COPY src/mdtemplates/ ./src/mdtemplates/
+COPY entrypoint.sh ./entrypoint.sh
 
 WORKDIR /app/src
 
-# Default to running the worker
 # Override TEMPORAL_HOST to point to your Temporal server
 ENV TEMPORAL_HOST=host.docker.internal:7233
 
-CMD ["python", "-m", "temporal.worker"]
+ENTRYPOINT ["/app/entrypoint.sh"]
