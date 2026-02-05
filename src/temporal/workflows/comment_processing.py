@@ -114,13 +114,8 @@ class ProcessConfirmationWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        # Mark as processed regardless of outcome
-        await workflow.execute_activity(
-            comment_activities.mark_comment_saved,
-            args=[comment_id],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
+        # mark_comment_saved removed - Temporal's workflow ID dedup
+        # (process-{comment_id}) makes it unnecessary
 
         # Handle validation failure with template response
         if not validation["valid"]:
@@ -146,18 +141,36 @@ class ProcessConfirmationWorkflow:
         confirmer = validation["confirmer"]
         parent_comment_id = validation.get("parent_comment_id")
 
-        # Atomically increment both users' flairs
-        # Each activity reads current flair and increments in one operation
-        parent_result = await workflow.execute_activity(
-            flair_activities.increment_user_flair,
+        # Read current flair values first (these get cached by Temporal on replay)
+        parent_flair = await workflow.execute_activity(
+            flair_activities.get_user_flair,
             args=[parent_author],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        confirmer_result = await workflow.execute_activity(
-            flair_activities.increment_user_flair,
+        confirmer_flair = await workflow.execute_activity(
+            flair_activities.get_user_flair,
             args=[confirmer],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
+
+        # Calculate new flair values in the workflow (deterministic)
+        parent_new_count = parent_flair["trade_count"] + 1
+        confirmer_new_count = confirmer_flair["trade_count"] + 1
+
+        # Set flairs to exact values - idempotent even on retry/replay
+        parent_result = await workflow.execute_activity(
+            flair_activities.set_user_flair,
+            args=[parent_author, parent_new_count],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
+
+        confirmer_result = await workflow.execute_activity(
+            flair_activities.set_user_flair,
+            args=[confirmer, confirmer_new_count],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
         )

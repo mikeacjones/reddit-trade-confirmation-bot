@@ -114,7 +114,7 @@ Processes a single comment for trade confirmation.
 1. Validates the comment via `validate_confirmation`
 2. Marks comment as saved
 3. On invalid with reason: replies with error template
-4. On valid: increments both users' flairs, posts confirmation reply
+4. On valid: reads current flairs, calculates new values, sets flairs, posts confirmation reply
 
 **Returns:** `{status, comment_id, parent_author, confirmer, flair_changes}`
 
@@ -150,7 +150,8 @@ Locks old confirmation threads.
 
 | Activity | Description |
 |----------|-------------|
-| `increment_user_flair(username)` | Atomically increment user's trade count |
+| `get_user_flair(username)` | Get user's current flair text and trade count |
+| `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
 
 ### Submission Activities (`submissions.py`)
 

@@ -111,29 +111,57 @@ class FlairManager:
 
 
 @activity.defn
-async def increment_user_flair(username: str) -> dict:
-    """Atomically increment a user's trade count flair by 1.
+async def get_user_flair(username: str) -> dict:
+    """Get a user's current flair information.
 
-    This activity reads the current flair and increments it in a single operation.
-    If the user has no flair, they start at 1. If they have a custom flair that
-    doesn't match the expected pattern, their flair is unchanged.
+    This is a read-only activity that returns the user's current flair text
+    and trade count. Used by workflows to calculate new flair values before
+    calling set_user_flair.
 
-    The workflow uses comment ID as workflow ID, preventing duplicate processing
-    of the same confirmation.
+    Returns dict with username, flair_text, and trade_count.
+    """
+    reddit = get_reddit_client()
+    subreddit = get_subreddit(reddit)
+
+    flair_text = next(subreddit.flair(username))["flair_text"]
+    trade_count = 0
+    if flair_text:
+        match = FLAIR_PATTERN.search(flair_text)
+        trade_count = int(match.group(1)) if match else 0
+
+    return {
+        "username": username,
+        "flair_text": flair_text,
+        "trade_count": trade_count,
+    }
+
+
+@activity.defn
+async def set_user_flair(username: str, new_count: int) -> dict:
+    """Set a user's flair to a specific trade count.
+
+    This activity is idempotent - calling it multiple times with the same
+    new_count will always result in the same flair being set.
+
+    The workflow is responsible for:
+    1. Reading current flair via get_user_flair
+    2. Calculating the new count (current + 1)
+    3. Passing the exact new_count to this activity
+
+    With a single worker, this ensures that even if the activity retries
+    after a crash, the same value is always set.
 
     Returns FlairUpdateResult as dict with username, old_flair, new_flair, and success.
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
 
+    # Get current flair for logging/return value (not for calculation)
     old_flair = FlairManager.get_flair_text(username, subreddit)
-    current_count = FlairManager.get_flair_count(username, subreddit)
-    new_count = current_count + 1
 
+    # Set flair to the exact value specified by the workflow
     new_flair = FlairManager.set_flair(username, new_count, subreddit)
-    activity.logger.info(
-        "u/%s flair updated: '%s' -> '%s'", username, old_flair, new_flair
-    )
+    activity.logger.info("u/%s flair set: '%s' -> '%s'", username, old_flair, new_flair)
 
     return asdict(
         FlairUpdateResult(

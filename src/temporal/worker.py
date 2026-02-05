@@ -33,12 +33,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from temporal.activities import (
     create_monthly_post,
     fetch_new_comments,
-    increment_user_flair,
+    get_user_flair,
     lock_previous_submissions,
     mark_comment_saved,
     post_confirmation_reply,
     reply_to_comment,
     send_pushover_notification,
+    set_user_flair,
     unsticky_previous_post,
     validate_confirmation,
 )
@@ -73,7 +74,8 @@ async def main():
         activities=[
             fetch_new_comments,
             validate_confirmation,
-            increment_user_flair,
+            get_user_flair,
+            set_user_flair,
             mark_comment_saved,
             reply_to_comment,
             post_confirmation_reply,
