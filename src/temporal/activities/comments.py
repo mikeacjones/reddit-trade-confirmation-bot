@@ -107,10 +107,6 @@ async def fetch_new_comments(
 
         comments.append(asdict(serialize_comment(comment)))
 
-    # Mark skipped comments as saved so they won't be fetched again
-    for comment in skipped_comments:
-        comment.save()
-
     activity.logger.info(
         "Fetched %d comments for processing, skipped %d from subreddit",
         len(comments),
