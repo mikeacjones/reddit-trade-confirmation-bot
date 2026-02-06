@@ -4,6 +4,8 @@ from datetime import timedelta
 from typing import Optional
 
 from temporalio import workflow
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from ..activities import comments as comment_activities
 from ..activities import flair as flair_activities
@@ -75,13 +77,30 @@ class CommentPollingWorkflow:
                 # If we crash and restart, already-processed comments won't be reprocessed
                 workflow_id = f"process-{comment_data['id']}"
 
-                await workflow.execute_child_workflow(
-                    ProcessConfirmationWorkflow.run,
-                    args=[comment_data],
-                    id=workflow_id,
-                )
-                self._processed_count += 1
-                self._last_seen_id = comment_data["id"]
+                try:
+                    await workflow.execute_child_workflow(
+                        ProcessConfirmationWorkflow.run,
+                        args=[comment_data],
+                        id=workflow_id,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
+                    self._processed_count += 1
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "Comment %s already processed (child workflow %s exists), skipping",
+                        comment_data["id"],
+                        workflow_id,
+                    )
+
+                # Always advance the watermark, even for duplicates.
+                # Track the highest (newest) comment ID seen, not the last iterated.
+                # subreddit.comments() returns newest-first, so we must compare
+                # rather than blindly overwrite, to avoid regressing the watermark.
+                comment_id = comment_data["id"]
+                if self._last_seen_id is None or int(comment_id, 36) > int(
+                    self._last_seen_id, 36
+                ):
+                    self._last_seen_id = comment_id
 
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=poll_interval_seconds))
@@ -133,8 +152,16 @@ class ProcessConfirmationWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        # mark_comment_saved removed - Temporal's workflow ID dedup
-        # (process-{comment_id}) makes it unnecessary
+        # Mark confirming comment as saved so it won't be re-fetched.
+        # This is needed because Temporal's default WorkflowIDReusePolicy
+        # (ALLOW_DUPLICATE) permits re-starting completed child workflows,
+        # so the workflow ID alone isn't sufficient dedup.
+        await workflow.execute_activity(
+            comment_activities.mark_comment_saved,
+            args=[comment_id],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
 
         # Handle validation failure with template response
         if not validation["valid"]:
