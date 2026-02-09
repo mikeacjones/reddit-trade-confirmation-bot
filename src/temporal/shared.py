@@ -22,7 +22,7 @@ load_dotenv()
 
 SUBREDDIT_NAME = os.environ["SUBREDDIT_NAME"]
 MONTHLY_POST_FLAIR_ID = os.getenv("MONTHLY_POST_FLAIR_ID", None)
-TASK_QUEUE = "trade-confirmation-bot"
+TASK_QUEUE = f"trade-confirmation-bot-{SUBREDDIT_NAME}"
 
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
 FLAIR_TEMPLATE_PATTERN = re.compile(r"Trades: ((\d+)-(\d+))")

@@ -66,11 +66,11 @@ async def setup_schedules():
     # Monthly post schedule - 1st of each month at 00:00 UTC
     try:
         await client.create_schedule(
-            "monthly-post-schedule",
+            f"monthly-post-schedule-{SUBREDDIT_NAME}",
             Schedule(
                 action=ScheduleActionStartWorkflow(
                     MonthlyPostWorkflow.run,
-                    id="monthly-post",
+                    id=f"monthly-post-{SUBREDDIT_NAME}",
                     task_queue=TASK_QUEUE,
                 ),
                 spec=ScheduleSpec(
@@ -85,19 +85,19 @@ async def setup_schedules():
             ),
         )
         logger.info(
-            "Created schedule: monthly-post-schedule (1st of month at 00:00 UTC)"
+            f"Created schedule: monthly-post-schedule-{SUBREDDIT_NAME} (1st of month at 00:00 UTC)"
         )
     except ScheduleAlreadyRunningError:
-        logger.info("Schedule monthly-post-schedule already exists")
+        logger.info(f"Schedule monthly-post-schedule-{SUBREDDIT_NAME} already exists")
 
     # Lock submissions schedule - 5th of each month at 00:00 UTC
     try:
         await client.create_schedule(
-            "lock-submissions-schedule",
+            f"lock-submissions-schedule-{SUBREDDIT_NAME}",
             Schedule(
                 action=ScheduleActionStartWorkflow(
                     LockSubmissionsWorkflow.run,
-                    id="lock-submissions",
+                    id=f"lock-submissions-{SUBREDDIT_NAME}",
                     task_queue=TASK_QUEUE,
                 ),
                 spec=ScheduleSpec(
@@ -112,10 +112,10 @@ async def setup_schedules():
             ),
         )
         logger.info(
-            "Created schedule: lock-submissions-schedule (5th of month at 00:00 UTC)"
+            f"Created schedule: lock-submissions-schedule-{SUBREDDIT_NAME} (5th of month at 00:00 UTC)"
         )
     except ScheduleAlreadyRunningError:
-        logger.info("Schedule lock-submissions-schedule already exists")
+        logger.info(f"Schedule lock-submissions-schedule-{SUBREDDIT_NAME} already exists")
 
     logger.info("Schedules setup complete")
 
@@ -151,7 +151,7 @@ async def trigger_monthly_post():
 
     handle = await client.start_workflow(
         MonthlyPostWorkflow.run,
-        id="monthly-post-manual",
+        id=f"monthly-post-manual-{SUBREDDIT_NAME}",
         task_queue=TASK_QUEUE,
     )
 
@@ -168,7 +168,7 @@ async def trigger_lock_submissions():
 
     handle = await client.start_workflow(
         LockSubmissionsWorkflow.run,
-        id="lock-submissions-manual",
+        id=f"lock-submissions-manual-{SUBREDDIT_NAME}",
         task_queue=TASK_QUEUE,
     )
 
