@@ -196,19 +196,16 @@ class ProcessConfirmationWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        # Mark confirming comment as saved so it won't be re-fetched.
-        # This is needed because Temporal's default WorkflowIDReusePolicy
-        # (ALLOW_DUPLICATE) permits re-starting completed child workflows,
-        # so the workflow ID alone isn't sufficient dedup.
-        await workflow.execute_activity(
-            comment_activities.mark_comment_saved,
-            args=[comment_id],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
         # Handle validation failure with template response
         if not validation["valid"]:
+            # Mark invalid comments as processed to avoid repeated replies.
+            await workflow.execute_activity(
+                comment_activities.mark_comment_saved,
+                args=[comment_id],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+
             reason = validation.get("reason")
             if reason:
                 # Reply with error template
@@ -315,6 +312,14 @@ class ProcessConfirmationWorkflow:
                 confirmer_result.get("old_flair"),
                 confirmer_result.get("new_flair"),
             ],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
+
+        # Mark confirming comment as saved only after successful processing.
+        await workflow.execute_activity(
+            comment_activities.mark_comment_saved,
+            args=[comment_id],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
         )
