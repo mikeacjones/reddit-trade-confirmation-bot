@@ -1,6 +1,8 @@
 """Flair management activities for Temporal bot."""
 
 from dataclasses import asdict
+import os
+import time
 from typing import Optional
 
 from temporalio import activity
@@ -18,11 +20,29 @@ class FlairManager:
 
     _templates: Optional[dict] = None
     _moderators: Optional[list] = None
+    _templates_loaded_at: Optional[float] = None
+    _moderators_loaded_at: Optional[float] = None
+
+    FLAIR_TEMPLATE_CACHE_TTL_SECONDS = int(
+        os.getenv("FLAIR_TEMPLATE_CACHE_TTL_SECONDS", "900")
+    )
+    MODERATORS_CACHE_TTL_SECONDS = int(os.getenv("MODERATORS_CACHE_TTL_SECONDS", "900"))
+
+    @classmethod
+    def _is_cache_fresh(cls, loaded_at: Optional[float], ttl_seconds: int) -> bool:
+        """Return True when cached value is still fresh."""
+        if loaded_at is None:
+            return False
+        if ttl_seconds <= 0:
+            return False
+        return time.monotonic() - loaded_at < ttl_seconds
 
     @classmethod
     def _load_flair_templates(cls, subreddit) -> dict:
         """Load flair templates from subreddit."""
-        if cls._templates is not None:
+        if cls._templates is not None and cls._is_cache_fresh(
+            cls._templates_loaded_at, cls.FLAIR_TEMPLATE_CACHE_TTL_SECONDS
+        ):
             return cls._templates
 
         templates = {}
@@ -41,16 +61,38 @@ class FlairManager:
                 )
 
         cls._templates = templates
+        cls._templates_loaded_at = time.monotonic()
+        activity.logger.info(
+            "Flair template cache refreshed: %d templates (ttl=%ss)",
+            len(templates),
+            cls.FLAIR_TEMPLATE_CACHE_TTL_SECONDS,
+        )
         return templates
 
     @classmethod
     def _load_moderators(cls, subreddit) -> list:
         """Load list of current moderators."""
-        if cls._moderators is not None:
+        if cls._moderators is not None and cls._is_cache_fresh(
+            cls._moderators_loaded_at, cls.MODERATORS_CACHE_TTL_SECONDS
+        ):
             return cls._moderators
 
         cls._moderators = [str(mod) for mod in subreddit.moderator()]
+        cls._moderators_loaded_at = time.monotonic()
+        activity.logger.info(
+            "Moderator cache refreshed: %d moderators (ttl=%ss)",
+            len(cls._moderators),
+            cls.MODERATORS_CACHE_TTL_SECONDS,
+        )
         return cls._moderators
+
+    @classmethod
+    def invalidate_caches(cls) -> None:
+        """Invalidate cached flair templates and moderators."""
+        cls._templates = None
+        cls._moderators = None
+        cls._templates_loaded_at = None
+        cls._moderators_loaded_at = None
 
     @classmethod
     def _get_flair_template(
@@ -188,3 +230,25 @@ async def set_user_flair(
             success=new_flair is not None,
         )
     )
+
+
+@activity.defn
+async def reload_flair_metadata_cache() -> dict:
+    """Force reload cached flair templates and moderator list."""
+    reddit = get_reddit_client()
+    subreddit = get_subreddit(reddit)
+
+    FlairManager.invalidate_caches()
+    templates = FlairManager._load_flair_templates(subreddit)
+    moderators = FlairManager._load_moderators(subreddit)
+
+    result = {
+        "templates": len(templates),
+        "moderators": len(moderators),
+    }
+    activity.logger.info(
+        "Reloaded flair metadata cache: %d templates, %d moderators",
+        result["templates"],
+        result["moderators"],
+    )
+    return result

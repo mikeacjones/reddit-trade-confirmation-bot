@@ -47,18 +47,12 @@ def _is_control_flow_stop_exception(exc: Exception) -> bool:
     return False
 
 
-# Temporal patch IDs for replay-safe workflow evolution. Remove only after legacy
-# runs have drained and these IDs are deprecated/retired.
-POLLING_BEHAVIOR_PATCH = "comment-polling-behavior-v2-2026-02-10"
-PROCESS_CONFIRMATION_BEHAVIOR_PATCH = "process-confirmation-behavior-v2-2026-02-10"
-
-
 @workflow.defn
 class CommentPollingWorkflow:
     """Continuously polls for new comments and processes them.
 
     This workflow runs indefinitely, periodically checking for new comments
-    in the specified submission and spawning child workflows to process them.
+    in the specified subreddit and spawning child workflows to process them.
     """
 
     # Continue-as-new after this many iterations to prevent unbounded event history
@@ -73,11 +67,17 @@ class CommentPollingWorkflow:
         self._processed_count = 0
         self._iterations = 0
         self._last_gap_alert_for_watermark: Optional[str] = None
+        self._reload_flair_metadata_requested = False
 
     @workflow.signal
     def stop(self) -> None:
         """Signal to stop the polling loop."""
         self._should_stop = True
+
+    @workflow.signal
+    def reload_flair_metadata(self) -> None:
+        """Signal to reload cached flair templates and moderator list."""
+        self._reload_flair_metadata_requested = True
 
     @workflow.query
     def get_status(self) -> dict:
@@ -87,6 +87,7 @@ class CommentPollingWorkflow:
             "processed_count": self._processed_count,
             "running": not self._should_stop,
             "last_gap_alert_for_watermark": self._last_gap_alert_for_watermark,
+            "reload_flair_metadata_requested": self._reload_flair_metadata_requested,
         }
 
     async def _start_comment_child_workflow(self, comment_data: dict) -> None:
@@ -108,76 +109,32 @@ class CommentPollingWorkflow:
                 workflow_id,
             )
 
-    @staticmethod
-    def _extract_legacy_comments(poll_result: object) -> list[dict]:
-        """Extract comments from legacy/list or current/dict poll results."""
-        if isinstance(poll_result, list):
-            return [c for c in poll_result if isinstance(c, dict)]
+    async def _handle_reload_flair_metadata(self) -> None:
+        """Reload flair metadata caches when requested via signal."""
+        if not self._reload_flair_metadata_requested:
+            return
 
-        if isinstance(poll_result, dict):
-            comments = poll_result.get("comments")
-            if isinstance(comments, list):
-                return [c for c in comments if isinstance(c, dict)]
-
-        return []
-
-    @staticmethod
-    def _extract_poll_result_v2(
-        poll_result: object,
-    ) -> tuple[list[dict], Optional[str], bool, bool, int]:
-        """Normalize poll activity output for v2 behavior."""
-        if isinstance(poll_result, dict):
-            comments = poll_result.get("comments")
-            if not isinstance(comments, list):
-                comments = []
-            comments = [c for c in comments if isinstance(c, dict)]
-            newest_seen_id = poll_result.get("newest_seen_id")
-            if not isinstance(newest_seen_id, str):
-                newest_seen_id = None
-            watermark_found = bool(poll_result.get("watermark_found", True))
-            listing_exhausted = bool(poll_result.get("listing_exhausted", False))
-            scanned_count = poll_result.get("scanned_count", 0)
-            if not isinstance(scanned_count, int):
-                scanned_count = 0
-            return (
-                comments,
-                newest_seen_id,
-                watermark_found,
-                listing_exhausted,
-                scanned_count,
+        try:
+            result = await workflow.execute_activity(
+                flair_activities.reload_flair_metadata_cache,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+            self._reload_flair_metadata_requested = False
+            workflow.logger.info(
+                "Reloaded flair metadata cache: %s templates, %s moderators",
+                result.get("templates"),
+                result.get("moderators"),
+            )
+        except Exception as exc:
+            workflow.logger.warning(
+                "Failed to reload flair metadata cache (will retry next poll): %s: %s",
+                type(exc).__name__,
+                str(exc),
             )
 
-        comments = CommentPollingWorkflow._extract_legacy_comments(poll_result)
-        newest_seen_id = None
-        for comment_data in comments:
-            comment_id = comment_data.get("id")
-            if isinstance(comment_id, str):
-                if newest_seen_id is None or int(comment_id, 36) > int(newest_seen_id, 36):
-                    newest_seen_id = comment_id
-
-        return comments, newest_seen_id, True, False, len(comments)
-
-    async def _run_poll_iteration_v1(self) -> None:
-        """Legacy polling path for replay compatibility with pre-patch histories."""
-        poll_result = await workflow.execute_activity(
-            comment_activities.fetch_new_comments,
-            args=[self._last_seen_id],
-            start_to_close_timeout=timedelta(seconds=120),
-            heartbeat_timeout=timedelta(seconds=60),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-        comments = self._extract_legacy_comments(poll_result)
-
-        for comment_data in comments:
-            await self._start_comment_child_workflow(comment_data)
-
-            # Legacy behavior advanced watermark from each iterated comment.
-            comment_id = comment_data["id"]
-            if self._last_seen_id is None or int(comment_id, 36) > int(self._last_seen_id, 36):
-                self._last_seen_id = comment_id
-
-    async def _run_poll_iteration_v2(self) -> None:
-        """Current polling path with watermark gap detection and alerting."""
+    async def _run_poll_iteration(self) -> None:
+        """Run one polling iteration with watermark-gap detection."""
         previous_last_seen_id = self._last_seen_id
         poll_result = await workflow.execute_activity(
             comment_activities.fetch_new_comments,
@@ -187,13 +144,20 @@ class CommentPollingWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        (
-            comments,
-            newest_seen_id,
-            watermark_found,
-            listing_exhausted,
-            scanned_count,
-        ) = self._extract_poll_result_v2(poll_result)
+        comments = poll_result.get("comments", [])
+        if not isinstance(comments, list):
+            comments = []
+        comments = [c for c in comments if isinstance(c, dict)]
+
+        newest_seen_id = poll_result.get("newest_seen_id")
+        if not isinstance(newest_seen_id, str):
+            newest_seen_id = None
+
+        watermark_found = bool(poll_result.get("watermark_found", True))
+        listing_exhausted = bool(poll_result.get("listing_exhausted", False))
+        scanned_count = poll_result.get("scanned_count", 0)
+        if not isinstance(scanned_count, int):
+            scanned_count = 0
 
         possible_watermark_gap = (
             previous_last_seen_id is not None
@@ -252,10 +216,8 @@ class CommentPollingWorkflow:
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
-            if workflow.patched(POLLING_BEHAVIOR_PATCH):
-                await self._run_poll_iteration_v2()
-            else:
-                await self._run_poll_iteration_v1()
+            await self._handle_reload_flair_metadata()
+            await self._run_poll_iteration()
 
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=poll_interval_seconds))
@@ -284,121 +246,9 @@ class ProcessConfirmationWorkflow:
     - Handling error cases with appropriate template responses
     """
 
-    async def _run_v1(self, comment_data: dict) -> dict:
-        """Legacy process-confirmation path for replay compatibility."""
-        comment_id = comment_data["id"]
-        author = comment_data["author_name"]
-
-        workflow.logger.info(f"[v1] Processing comment {comment_id} by {author}")
-
-        validation = await workflow.execute_activity(
-            comment_activities.validate_confirmation,
-            args=[comment_data],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        await workflow.execute_activity(
-            comment_activities.mark_comment_saved,
-            args=[comment_id],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        if not validation["valid"]:
-            reason = validation.get("reason")
-            if reason:
-                await workflow.execute_activity(
-                    comment_activities.reply_to_comment,
-                    args=[comment_id, reason, {"comment": comment_data}],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
-                return {
-                    "status": "rejected",
-                    "reason": reason,
-                    "comment_id": comment_id,
-                }
-
-            return {"status": "skipped", "comment_id": comment_id}
-
-        parent_author = validation["parent_author"]
-        confirmer = validation["confirmer"]
-        parent_comment_id = validation.get("parent_comment_id")
-
-        parent_flair = await workflow.execute_activity(
-            flair_activities.get_user_flair,
-            args=[parent_author],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        confirmer_flair = await workflow.execute_activity(
-            flair_activities.get_user_flair,
-            args=[confirmer],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        parent_trade_count = parent_flair.get("trade_count")
-        confirmer_trade_count = confirmer_flair.get("trade_count")
-        if not isinstance(parent_trade_count, int) or not isinstance(
-            confirmer_trade_count, int
-        ):
-            workflow.logger.warning(
-                "[v1] Non-integer trade count for comment %s; skipping confirmation",
-                comment_id,
-            )
-            return {"status": "skipped", "comment_id": comment_id}
-
-        parent_result = await workflow.execute_activity(
-            flair_activities.set_user_flair,
-            args=[parent_author, parent_trade_count + 1],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        confirmer_result = await workflow.execute_activity(
-            flair_activities.set_user_flair,
-            args=[confirmer, confirmer_trade_count + 1],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        if parent_comment_id:
-            await workflow.execute_activity(
-                comment_activities.mark_comment_saved,
-                args=[parent_comment_id],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-
-        await workflow.execute_activity(
-            comment_activities.post_confirmation_reply,
-            args=[
-                comment_id,
-                parent_author,
-                confirmer,
-                parent_result.get("old_flair"),
-                parent_result.get("new_flair"),
-                confirmer_result.get("old_flair"),
-                confirmer_result.get("new_flair"),
-            ],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        return {
-            "status": "confirmed",
-            "comment_id": comment_id,
-            "parent_author": parent_author,
-            "confirmer": confirmer,
-            "parent_new_flair": parent_result.get("new_flair"),
-            "confirmer_new_flair": confirmer_result.get("new_flair"),
-        }
-
-    async def _run_v2(self, comment_data: dict) -> dict:
-        """Current process-confirmation path."""
+    @workflow.run
+    async def run(self, comment_data: dict) -> dict:
+        """Process a potential trade confirmation comment."""
         comment_id = comment_data["id"]
         author = comment_data["author_name"]
 
@@ -586,10 +436,3 @@ class ProcessConfirmationWorkflow:
                 "error_type": error_type,
                 "error": error_message,
             }
-
-    @workflow.run
-    async def run(self, comment_data: dict) -> dict:
-        """Process a potential trade confirmation comment."""
-        if workflow.patched(PROCESS_CONFIRMATION_BEHAVIOR_PATCH):
-            return await self._run_v2(comment_data)
-        return await self._run_v1(comment_data)

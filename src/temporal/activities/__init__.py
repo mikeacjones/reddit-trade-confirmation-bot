@@ -8,7 +8,7 @@ from .comments import (
     reply_to_comment,
     validate_confirmation,
 )
-from .flair import get_user_flair, set_user_flair
+from .flair import get_user_flair, reload_flair_metadata_cache, set_user_flair
 from .notifications import send_pushover_notification
 from .submissions import (
     create_monthly_post,
@@ -27,6 +27,7 @@ __all__ = [
     # Flair
     "get_user_flair",
     "set_user_flair",
+    "reload_flair_metadata_cache",
     # Submissions
     "create_monthly_post",
     "unsticky_previous_post",

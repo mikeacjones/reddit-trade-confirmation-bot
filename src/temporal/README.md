@@ -54,6 +54,8 @@ src/temporal/
    export MONTHLY_POST_FLAIR_ID=xxx
    export PUSHOVER_APP_TOKEN=xxx
    export PUSHOVER_USER_TOKEN=xxx
+   export FLAIR_TEMPLATE_CACHE_TTL_SECONDS=900
+   export MODERATORS_CACHE_TTL_SECONDS=900
    ```
 
 ## Quick Start
@@ -88,6 +90,7 @@ python -m temporal.starter <command>
 |---------|-------------|
 | `setup` | Create scheduled workflows (run once) |
 | `start-polling` | Start comment polling workflow |
+| `reload-flair-metadata` | Signal polling workflow to reload flair templates/moderators cache |
 | `create-monthly` | Manually trigger monthly post creation |
 | `lock-submissions` | Manually trigger submission locking |
 | `status` | Show polling workflow status and schedules |
@@ -103,9 +106,9 @@ Continuously polls for new comments across the subreddit.
 - Spawns `ProcessConfirmationWorkflow` child for each comment
 - Uses comment ID as workflow ID for idempotency
 
-**Signals:** `stop()` - Gracefully stop polling
+**Signals:** `stop()` (graceful stop), `reload_flair_metadata()` (refresh flair/mod metadata cache)
 
-**Queries:** `get_status()` - Returns `{last_seen_id, processed_count, running}`
+**Queries:** `get_status()` - Returns `{last_seen_id, processed_count, running, last_gap_alert_for_watermark, reload_flair_metadata_requested}`
 
 ### ProcessConfirmationWorkflow
 
@@ -121,23 +124,6 @@ On non-retryable processing failures, it sends a moderator notification and retu
 `status: manual_review_required` so the child workflow ID is not relaunched automatically.
 Cancellation/termination paths are propagated so Temporal still records canceled/terminated
 workflow outcomes.
-
-### Workflow Versioning Guards
-
-Temporal workflow replay is deterministic, so changing workflow command order (activities,
-child workflows, timers, continue-as-new, etc.) can break existing histories.
-This project uses `workflow.patched(...)` guards in `comment_processing.py` to keep both
-old and new command paths available during rollout:
-
-- `comment-polling-behavior-v2-2026-02-10`
-- `process-confirmation-behavior-v2-2026-02-10`
-
-Cleanup progression:
-1. Deploy with guards and monitor until pre-patch runs are drained.
-2. For long-running polling workflows, ensure at least one full continue-as-new cycle.
-3. Remove legacy branches and replace `workflow.patched(...)` with
-   `workflow.deprecate_patch(...)`.
-4. After all executions include the patch marker, remove the deprecate call and patch ID.
 
 ### MonthlyPostWorkflow
 
@@ -173,6 +159,7 @@ Locks old confirmation threads.
 |----------|-------------|
 | `get_user_flair(username)` | Get user's current flair text and trade count |
 | `set_user_flair(username, new_count, old_flair)` | Set user's flair to exact trade count (idempotent) |
+| `reload_flair_metadata_cache()` | Force-refresh cached flair templates and moderator list |
 
 Users with custom non-trade flair are treated as untracked for count updates and their flair text is preserved.
 

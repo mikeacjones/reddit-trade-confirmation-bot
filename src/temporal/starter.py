@@ -10,6 +10,9 @@ Usage:
     # Start polling the current submission
     python -m temporal.starter start-polling
 
+    # Reload flair templates/moderators cache in polling workflow
+    python -m temporal.starter reload-flair-metadata
+
     # Manually trigger monthly post
     python -m temporal.starter create-monthly
 
@@ -206,6 +209,20 @@ async def show_status():
         logger.info(f"  - {schedule.id}")
 
 
+async def reload_flair_metadata():
+    """Signal polling workflow to reload flair templates and moderators cache."""
+    client = await get_client()
+
+    workflow_id = f"poll-{SUBREDDIT_NAME}"
+
+    try:
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.signal(CommentPollingWorkflow.reload_flair_metadata)
+        logger.info("Signaled %s to reload flair metadata cache", workflow_id)
+    except Exception as e:
+        logger.info("Failed to signal %s for flair metadata reload: %s", workflow_id, e)
+
+
 def print_usage():
     """Print usage information."""
     print("""
@@ -214,6 +231,7 @@ Usage: python -m temporal.starter <command>
 Commands:
     setup           Set up scheduled workflows (run once)
     start-polling   Start polling for comments on current submission
+    reload-flair-metadata Signal polling workflow to reload flair metadata cache
     create-monthly  Manually trigger monthly post creation
     lock-submissions Manually trigger lock submissions
     status          Show status of running workflows
@@ -235,6 +253,8 @@ async def main():
         await setup_schedules()
     elif command == "start-polling":
         await start_polling()
+    elif command == "reload-flair-metadata":
+        await reload_flair_metadata()
     elif command == "create-monthly":
         await trigger_monthly_post()
     elif command == "lock-submissions":
