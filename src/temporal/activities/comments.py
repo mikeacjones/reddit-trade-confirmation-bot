@@ -197,6 +197,14 @@ async def validate_confirmation(comment_data: dict) -> dict:
         ):
             grandparent_comment = parent_comment.parent()
             if grandparent_comment and grandparent_comment.is_root:
+                # Use the root trade comment saved flag for dedupe. This prevents
+                # repeated mod approvals on the same trade from re-incrementing.
+                if grandparent_comment.saved:
+                    return asdict(
+                        ValidationResult(valid=False, reason="already_confirmed")
+                    )
+                if not should_process_redditor(grandparent_comment.author, bot_user):
+                    return asdict(ValidationResult(valid=False))
                 return asdict(
                     ValidationResult(
                         valid=True,
