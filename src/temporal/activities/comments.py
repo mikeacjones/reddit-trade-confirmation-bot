@@ -31,6 +31,9 @@ async def fetch_new_comments(
         dict with:
             - comments: list of serialized CommentData dicts to process
             - newest_seen_id: newest comment ID observed during this poll
+            - watermark_found: whether we reached `last_seen_id` while scanning
+            - listing_exhausted: whether we consumed the full listing window
+            - scanned_count: number of comments scanned in this poll
 
     Filters out and marks as saved comments that clearly don't need child workflows.
     Sends heartbeats during processing to signal liveness.
@@ -49,23 +52,33 @@ async def fetch_new_comments(
 
     comments = []
     skipped_count = 0
-    processed_count = 0
+    scanned_count = 0
     newest_seen_id = last_seen_id
+    newest_seen_value = int(last_seen_id, 36) if last_seen_id else None
+    last_seen_value = int(last_seen_id, 36) if last_seen_id else None
+    watermark_found = last_seen_id is None
+    listing_exhausted = True
 
-    for comment in subreddit.comments(limit=100):
-        # Heartbeat every 10 comments to signal we're still alive
-        processed_count += 1
-        if processed_count % 10 == 0:
-            activity.heartbeat(f"Processed {processed_count} comments")
+    # PRAW paginates listing requests under the hood (100 per API call).
+    # We iterate until we reach last_seen_id to avoid missing bursts >100 comments.
+    for comment in subreddit.comments(limit=None):
+        # Heartbeat every 50 comments to signal we're still alive.
+        scanned_count += 1
+        if scanned_count % 50 == 0:
+            activity.heartbeat(f"Scanned {scanned_count} comments")
 
-        # Skip if we've already seen this comment
-        # Reddit IDs are base36 - must convert to int for chronological comparison
-        if last_seen_id and int(comment.id, 36) <= int(last_seen_id, 36):
-            continue
+        comment_id_value = int(comment.id, 36)
+
+        # Results are newest-first; once we reach the watermark, older items follow.
+        if last_seen_value is not None and comment_id_value <= last_seen_value:
+            watermark_found = True
+            listing_exhausted = False
+            break
 
         # Track the newest comment seen, even if we skip processing it.
-        if newest_seen_id is None or int(comment.id, 36) > int(newest_seen_id, 36):
+        if newest_seen_value is None or comment_id_value > newest_seen_value:
             newest_seen_id = comment.id
+            newest_seen_value = comment_id_value
 
         # Skip already processed
         if comment.saved:
@@ -118,12 +131,24 @@ async def fetch_new_comments(
         comments.append(asdict(serialize_comment(comment)))
 
     activity.logger.info(
-        "Fetched %d comments for processing, skipped %d from subreddit, newest_seen_id=%s",
+        (
+            "Fetched %d comments for processing, skipped %d from subreddit, "
+            "scanned=%d, newest_seen_id=%s, watermark_found=%s, listing_exhausted=%s"
+        ),
         len(comments),
         skipped_count,
+        scanned_count,
         newest_seen_id,
+        watermark_found,
+        listing_exhausted,
     )
-    return {"comments": comments, "newest_seen_id": newest_seen_id}
+    return {
+        "comments": comments,
+        "newest_seen_id": newest_seen_id,
+        "watermark_found": watermark_found,
+        "listing_exhausted": listing_exhausted,
+        "scanned_count": scanned_count,
+    }
 
 
 @activity.defn

@@ -9,7 +9,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from ..activities import comments as comment_activities
 from ..activities import flair as flair_activities
-from ..shared import REDDIT_RETRY_POLICY
+from ..activities import notifications as notification_activities
+from ..shared import REDDIT_RETRY_POLICY, SUBREDDIT_NAME
 
 
 @workflow.defn
@@ -22,12 +23,16 @@ class CommentPollingWorkflow:
 
     # Continue-as-new after this many iterations to prevent unbounded event history
     MAX_ITERATIONS = 50
+    # Reddit listings are typically capped near 1000 items; alert when we scan
+    # deep into that window and still can't find our watermark.
+    WATERMARK_GAP_SCAN_THRESHOLD = 900
 
     def __init__(self):
         self._should_stop = False
         self._last_seen_id: Optional[str] = None
         self._processed_count = 0
         self._iterations = 0
+        self._last_gap_alert_for_watermark: Optional[str] = None
 
     @workflow.signal
     def stop(self) -> None:
@@ -41,6 +46,7 @@ class CommentPollingWorkflow:
             "last_seen_id": self._last_seen_id,
             "processed_count": self._processed_count,
             "running": not self._should_stop,
+            "last_gap_alert_for_watermark": self._last_gap_alert_for_watermark,
         }
 
     @workflow.run
@@ -62,6 +68,8 @@ class CommentPollingWorkflow:
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
+            previous_last_seen_id = self._last_seen_id
+
             # Fetch new comments - let exceptions propagate after retries exhausted
             poll_result = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
@@ -71,6 +79,43 @@ class CommentPollingWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
             comments = poll_result["comments"]
+
+            watermark_found = poll_result.get("watermark_found", True)
+            listing_exhausted = poll_result.get("listing_exhausted", False)
+            scanned_count = poll_result.get("scanned_count", 0)
+
+            # If we exhaust the listing window without seeing our prior watermark,
+            # we may have missed comments due to listing depth limits.
+            possible_watermark_gap = (
+                previous_last_seen_id is not None
+                and not watermark_found
+                and listing_exhausted
+                and scanned_count >= self.WATERMARK_GAP_SCAN_THRESHOLD
+            )
+            if possible_watermark_gap:
+                workflow.logger.warning(
+                    "Possible listing gap for r/%s: scanned=%s without finding watermark %s",
+                    SUBREDDIT_NAME,
+                    scanned_count,
+                    previous_last_seen_id,
+                )
+                if self._last_gap_alert_for_watermark != previous_last_seen_id:
+                    await workflow.execute_activity(
+                        notification_activities.send_pushover_notification,
+                        args=[
+                            (
+                                f"[r/{SUBREDDIT_NAME}] Possible comment listing gap: "
+                                f"scanned {scanned_count} comments without finding "
+                                f"watermark {previous_last_seen_id}. "
+                                "Manual review of recent confirmations recommended."
+                            )
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                    )
+                    self._last_gap_alert_for_watermark = previous_last_seen_id
+            elif watermark_found:
+                # Reset when we're back to normal so future distinct gaps alert.
+                self._last_gap_alert_for_watermark = None
 
             # Advance watermark even when comments are skipped and not sent to child workflows.
             newest_seen_id = poll_result.get("newest_seen_id")
