@@ -120,6 +120,8 @@ Processes a single comment for trade confirmation.
 
 On non-retryable processing failures, it sends a moderator notification and returns
 `status: manual_review_required` so the child workflow ID is not relaunched automatically.
+Cancellation/termination paths are propagated so Temporal still records canceled/terminated
+workflow outcomes.
 
 ### MonthlyPostWorkflow
 

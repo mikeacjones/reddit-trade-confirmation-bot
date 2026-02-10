@@ -13,6 +13,40 @@ from ..activities import notifications as notification_activities
 from ..shared import REDDIT_RETRY_POLICY, SUBREDDIT_NAME
 
 
+def _iter_exception_chain(exc: BaseException):
+    """Iterate exception, __cause__/__context__, and Temporal-style .cause chains."""
+    seen = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        next_exc = (
+            getattr(current, "cause", None)
+            or current.__cause__
+            or current.__context__
+        )
+        current = next_exc if isinstance(next_exc, BaseException) else None
+
+
+def _is_control_flow_stop_exception(exc: Exception) -> bool:
+    """Return True for cancellation/termination-style exceptions.
+
+    These should propagate so Temporal records canceled/terminated semantics
+    instead of converting them to manual review outcomes.
+    """
+    for err in _iter_exception_chain(exc):
+        err_type = type(err).__name__.lower()
+        if (
+            "cancel" in err_type
+            or "cancellation" in err_type
+            or "terminate" in err_type
+            or "terminated" in err_type
+        ):
+            return True
+
+    return False
+
+
 @workflow.defn
 class CommentPollingWorkflow:
     """Continuously polls for new comments and processes them.
@@ -348,6 +382,14 @@ class ProcessConfirmationWorkflow:
                 "confirmer_new_flair": confirmer_result.get("new_flair"),
             }
         except Exception as exc:
+            if _is_control_flow_stop_exception(exc):
+                workflow.logger.info(
+                    "Propagating cancellation/termination for comment %s (%s)",
+                    comment_id,
+                    type(exc).__name__,
+                )
+                raise
+
             error_type = type(exc).__name__
             error_message = str(exc)
             workflow.logger.error(
