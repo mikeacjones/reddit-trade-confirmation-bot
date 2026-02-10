@@ -10,7 +10,12 @@ from ..shared import (
     SUBREDDIT_NAME,
 )
 from .helpers import TemplateManager
-from .reddit import get_bot_user, get_reddit_client, get_subreddit
+from .reddit import (
+    get_bot_user,
+    get_reddit_client,
+    get_subreddit,
+    invalidate_bot_submissions_cache,
+)
 
 
 @activity.defn
@@ -27,6 +32,7 @@ async def unsticky_previous_post() -> bool:
 
     if previous_submission.stickied:
         previous_submission.mod.sticky(state=False)
+        invalidate_bot_submissions_cache()
         activity.logger.info(
             "Unstickied previous post: %s", previous_submission.permalink
         )
@@ -91,6 +97,7 @@ async def create_monthly_post() -> str:
     # Configure new post
     new_submission.mod.sticky(bottom=False)
     new_submission.mod.suggested_sort(sort="new")
+    invalidate_bot_submissions_cache()
 
     activity.logger.info(
         "Created monthly post: https://reddit.com%s", new_submission.permalink
@@ -115,5 +122,8 @@ async def lock_previous_submissions() -> int:
             submission.mod.lock()
             activity.logger.info("Locked: https://reddit.com%s", submission.permalink)
             locked_count += 1
+
+    if locked_count > 0:
+        invalidate_bot_submissions_cache()
 
     return locked_count

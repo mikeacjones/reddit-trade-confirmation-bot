@@ -12,6 +12,7 @@ from ..shared import (
 from .flair import FlairManager
 from .helpers import TemplateManager
 from .reddit import (
+    get_bot_submissions,
     get_bot_user,
     get_reddit_client,
     get_subreddit,
@@ -39,12 +40,13 @@ async def fetch_new_comments(
     """
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
+    bot_username = bot_user.name
     subreddit = get_subreddit(reddit)
 
     activity.heartbeat("Fetching bot submissions")
 
     # Cache bot submission info to avoid lazy-loading each comment's submission
-    bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
+    bot_submissions = get_bot_submissions(reddit, limit=10)
     bot_submission_ids = set(bot_submissions.keys())
 
     activity.heartbeat("Fetching comments from subreddit")
@@ -101,7 +103,7 @@ async def fetch_new_comments(
             continue
 
         # Skip comments without valid authors (includes bot's own comments)
-        if not should_process_redditor(comment.author, bot_user):
+        if not should_process_redditor(comment.author, bot_username):
             continue
 
         comment_body_lower = comment.body.lower()
@@ -157,7 +159,7 @@ async def validate_confirmation(comment_data: dict) -> dict:
     Returns ValidationResult as dict.
     """
     reddit = get_reddit_client()
-    bot_user = get_bot_user(reddit)
+    bot_username = get_bot_user(reddit).name
     subreddit = get_subreddit(reddit)
     comment = reddit.comment(id=comment_data["id"])
 
@@ -181,7 +183,7 @@ async def validate_confirmation(comment_data: dict) -> dict:
     if parent_comment is None or parent_comment.banned_by is not None:
         return asdict(ValidationResult(valid=False))
 
-    if not should_process_redditor(parent_comment.author, bot_user):
+    if not should_process_redditor(parent_comment.author, bot_username):
         return asdict(ValidationResult(valid=False))
 
     # Can't confirm your own trade
@@ -203,7 +205,9 @@ async def validate_confirmation(comment_data: dict) -> dict:
                     return asdict(
                         ValidationResult(valid=False, reason="already_confirmed")
                     )
-                if not should_process_redditor(grandparent_comment.author, bot_user):
+                if not should_process_redditor(
+                    grandparent_comment.author, bot_username
+                ):
                     return asdict(ValidationResult(valid=False))
                 return asdict(
                     ValidationResult(
