@@ -36,7 +36,7 @@ async def fetch_new_comments(
             - listing_exhausted: whether we consumed the full listing window
             - scanned_count: number of comments scanned in this poll
 
-    Filters out and marks as saved comments that clearly don't need child workflows.
+    Filters out comments that clearly don't need child workflows.
     Sends heartbeats during processing to signal liveness.
     """
     reddit = get_reddit_client()
@@ -126,7 +126,6 @@ async def fetch_new_comments(
                 "confirmed" not in comment_body_lower
                 and "approved" not in comment_body_lower
             ):
-                comment.save()
                 skipped_count += 1
                 continue
 
@@ -303,7 +302,6 @@ async def reply_to_comment(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    reply.save()
     activity.logger.info("Replied to comment: https://reddit.com%s", reply.permalink)
     return reply.id
 
@@ -345,6 +343,5 @@ async def post_confirmation_reply(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    reply.save()
     activity.logger.info("Trade confirmed: https://reddit.com%s", reply.permalink)
     return reply.id

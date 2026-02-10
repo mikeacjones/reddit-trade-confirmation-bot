@@ -182,7 +182,7 @@ The `fetch_new_comments` activity filters comments:
 - **Skipped:** Already saved, not on bot submission, on locked submission, removed, bot's own
 - **Root comments in current thread:** Skipped (not confirmations)
 - **Root comments in old threads:** Replied to with `old_confirmation_thread` and locked
-- **Non-root without "confirmed"/"approved":** Marked saved and skipped
+- **Non-root without "confirmed"/"approved":** Skipped
 - If the listing is exhausted without finding the previous watermark, the workflow emits a warning/notification for potential listing-window gaps
 
 ## Validation Rules
