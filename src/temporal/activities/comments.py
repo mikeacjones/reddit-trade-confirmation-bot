@@ -1,7 +1,6 @@
 """Comment-related activities for Temporal bot."""
 
 from dataclasses import asdict
-from datetime import datetime, timezone
 from typing import Optional
 
 from temporalio import activity
@@ -164,20 +163,14 @@ async def validate_confirmation(comment_data: dict) -> dict:
 
     # Top-level comments can't be confirmations
     if comment_data["is_root"]:
-        # Check if this is in an old thread (non-stickied)
+        # Root comments can only start new trades on the current stickied thread.
+        # On non-stickied threads, reject as old_confirmation_thread so the workflow
+        # can reply with guidance and lock the initiating comment.
         submission = reddit.submission(id=comment_data["submission_id"])
         if not submission.stickied:
-            comment_date = datetime.fromtimestamp(
-                comment_data["created_utc"], tz=timezone.utc
+            return asdict(
+                ValidationResult(valid=False, reason="old_confirmation_thread")
             )
-            now = datetime.now(timezone.utc)
-            is_current_month = (
-                comment_date.year == now.year and comment_date.month == now.month
-            )
-            if not is_current_month:
-                return asdict(
-                    ValidationResult(valid=False, reason="old_confirmation_thread")
-                )
 
         return asdict(ValidationResult(valid=False))
 
@@ -257,6 +250,15 @@ async def mark_comment_saved(comment_id: str) -> bool:
     reddit = get_reddit_client()
     comment = reddit.comment(id=comment_id)
     comment.save()
+    return True
+
+
+@activity.defn
+async def lock_comment(comment_id: str) -> bool:
+    """Lock a comment to prevent new replies."""
+    reddit = get_reddit_client()
+    comment = reddit.comment(id=comment_id)
+    comment.mod.lock()
     return True
 
 

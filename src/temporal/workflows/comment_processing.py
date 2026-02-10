@@ -216,6 +216,15 @@ class ProcessConfirmationWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
+                    if reason == "old_confirmation_thread":
+                        # Lock root comments on old threads so they cannot be used
+                        # to complete an invalidly-started confirmation.
+                        await workflow.execute_activity(
+                            comment_activities.lock_comment,
+                            args=[comment_id],
+                            start_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=REDDIT_RETRY_POLICY,
+                        )
                     return {
                         "status": "rejected",
                         "reason": reason,

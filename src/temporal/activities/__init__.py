@@ -2,6 +2,7 @@
 
 from .comments import (
     fetch_new_comments,
+    lock_comment,
     mark_comment_saved,
     post_confirmation_reply,
     reply_to_comment,
@@ -20,6 +21,7 @@ __all__ = [
     "fetch_new_comments",
     "validate_confirmation",
     "mark_comment_saved",
+    "lock_comment",
     "reply_to_comment",
     "post_confirmation_reply",
     # Flair
