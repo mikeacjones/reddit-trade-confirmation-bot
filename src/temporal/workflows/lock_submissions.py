@@ -31,11 +31,18 @@ class LockSubmissionsWorkflow:
         )
 
         # Send notification
-        await workflow.execute_activity(
-            notification_activities.send_pushover_notification,
-            args=[f"Locking previous month's posts for r/{SUBREDDIT_NAME}"],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        try:
+            await workflow.execute_activity(
+                notification_activities.send_pushover_notification,
+                args=[f"Locking previous month's posts for r/{SUBREDDIT_NAME}"],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+        except Exception as exc:
+            workflow.logger.warning(
+                "Failed to send lock-submissions start notification: %s: %s",
+                type(exc).__name__,
+                str(exc),
+            )
 
         # Lock submissions
         locked_count = await workflow.execute_activity(

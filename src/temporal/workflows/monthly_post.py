@@ -35,11 +35,18 @@ class MonthlyPostWorkflow:
         workflow.logger.info(f"Starting monthly post workflow for r/{SUBREDDIT_NAME}")
 
         # Send notification that we're creating the post
-        await workflow.execute_activity(
-            notification_activities.send_pushover_notification,
-            args=[f"Creating monthly post for r/{SUBREDDIT_NAME}"],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        try:
+            await workflow.execute_activity(
+                notification_activities.send_pushover_notification,
+                args=[f"Creating monthly post for r/{SUBREDDIT_NAME}"],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+        except Exception as exc:
+            workflow.logger.warning(
+                "Failed to send monthly-post start notification: %s: %s",
+                type(exc).__name__,
+                str(exc),
+            )
 
         # Unsticky previous post
         await workflow.execute_activity(
@@ -56,11 +63,18 @@ class MonthlyPostWorkflow:
         )
 
         # Notify about success
-        await workflow.execute_activity(
-            notification_activities.send_pushover_notification,
-            args=[f"Monthly post for r/{SUBREDDIT_NAME}: {submission_id}"],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        try:
+            await workflow.execute_activity(
+                notification_activities.send_pushover_notification,
+                args=[f"Monthly post for r/{SUBREDDIT_NAME}: {submission_id}"],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+        except Exception as exc:
+            workflow.logger.warning(
+                "Failed to send monthly-post success notification: %s: %s",
+                type(exc).__name__,
+                str(exc),
+            )
 
         workflow.logger.info(f"Monthly post: {submission_id}")
 
