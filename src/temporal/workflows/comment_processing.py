@@ -21,7 +21,7 @@ class CommentPollingWorkflow:
     """
 
     # Continue-as-new after this many iterations to prevent unbounded event history
-    MAX_ITERATIONS = 500
+    MAX_ITERATIONS = 50
 
     def __init__(self):
         self._should_stop = False
