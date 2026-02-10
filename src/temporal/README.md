@@ -122,6 +122,23 @@ On non-retryable processing failures, it sends a moderator notification and retu
 Cancellation/termination paths are propagated so Temporal still records canceled/terminated
 workflow outcomes.
 
+### Workflow Versioning Guards
+
+Temporal workflow replay is deterministic, so changing workflow command order (activities,
+child workflows, timers, continue-as-new, etc.) can break existing histories.
+This project uses `workflow.patched(...)` guards in `comment_processing.py` to keep both
+old and new command paths available during rollout:
+
+- `comment-polling-behavior-v2-2026-02-10`
+- `process-confirmation-behavior-v2-2026-02-10`
+
+Cleanup progression:
+1. Deploy with guards and monitor until pre-patch runs are drained.
+2. For long-running polling workflows, ensure at least one full continue-as-new cycle.
+3. Remove legacy branches and replace `workflow.patched(...)` with
+   `workflow.deprecate_patch(...)`.
+4. After all executions include the patch marker, remove the deprecate call and patch ID.
+
 ### MonthlyPostWorkflow
 
 Creates the monthly confirmation thread.
