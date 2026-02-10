@@ -63,13 +63,22 @@ class CommentPollingWorkflow:
 
         while not self._should_stop:
             # Fetch new comments - let exceptions propagate after retries exhausted
-            comments = await workflow.execute_activity(
+            poll_result = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
                 args=[self._last_seen_id],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
+            comments = poll_result["comments"]
+
+            # Advance watermark even when comments are skipped and not sent to child workflows.
+            newest_seen_id = poll_result.get("newest_seen_id")
+            if newest_seen_id and (
+                self._last_seen_id is None
+                or int(newest_seen_id, 36) > int(self._last_seen_id, 36)
+            ):
+                self._last_seen_id = newest_seen_id
 
             # Process each comment via child workflow
             for comment_data in comments:
@@ -91,16 +100,6 @@ class CommentPollingWorkflow:
                         comment_data["id"],
                         workflow_id,
                     )
-
-                # Always advance the watermark, even for duplicates.
-                # Track the highest (newest) comment ID seen, not the last iterated.
-                # subreddit.comments() returns newest-first, so we must compare
-                # rather than blindly overwrite, to avoid regressing the watermark.
-                comment_id = comment_data["id"]
-                if self._last_seen_id is None or int(comment_id, 36) > int(
-                    self._last_seen_id, 36
-                ):
-                    self._last_seen_id = comment_id
 
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=poll_interval_seconds))

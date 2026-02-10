@@ -24,10 +24,14 @@ from .reddit import (
 @activity.defn
 async def fetch_new_comments(
     last_seen_id: Optional[str] = None,
-) -> list[dict]:
+) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
 
-    Returns list of serialized CommentData dicts for comments that need processing.
+    Returns:
+        dict with:
+            - comments: list of serialized CommentData dicts to process
+            - newest_seen_id: newest comment ID observed during this poll
+
     Filters out and marks as saved comments that clearly don't need child workflows.
     Sends heartbeats during processing to signal liveness.
     """
@@ -44,8 +48,9 @@ async def fetch_new_comments(
     activity.heartbeat("Fetching comments from subreddit")
 
     comments = []
-    skipped_comments = []  # Comments to mark as saved without processing
+    skipped_count = 0
     processed_count = 0
+    newest_seen_id = last_seen_id
 
     for comment in subreddit.comments(limit=100):
         # Heartbeat every 10 comments to signal we're still alive
@@ -57,6 +62,10 @@ async def fetch_new_comments(
         # Reddit IDs are base36 - must convert to int for chronological comparison
         if last_seen_id and int(comment.id, 36) <= int(last_seen_id, 36):
             continue
+
+        # Track the newest comment seen, even if we skip processing it.
+        if newest_seen_id is None or int(comment.id, 36) > int(newest_seen_id, 36):
+            newest_seen_id = comment.id
 
         # Skip already processed
         if comment.saved:
@@ -102,17 +111,19 @@ async def fetch_new_comments(
                 "confirmed" not in comment_body_lower
                 and "approved" not in comment_body_lower
             ):
-                skipped_comments.append(comment)
+                comment.save()
+                skipped_count += 1
                 continue
 
         comments.append(asdict(serialize_comment(comment)))
 
     activity.logger.info(
-        "Fetched %d comments for processing, skipped %d from subreddit",
+        "Fetched %d comments for processing, skipped %d from subreddit, newest_seen_id=%s",
         len(comments),
-        len(skipped_comments),
+        skipped_count,
+        newest_seen_id,
     )
-    return comments
+    return {"comments": comments, "newest_seen_id": newest_seen_id}
 
 
 @activity.defn
