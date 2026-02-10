@@ -57,6 +57,14 @@ python -m temporal.starter start-polling
 
 See [src/temporal/README.md](src/temporal/README.md) for detailed documentation.
 
+## Testing
+
+Run unit tests locally without hitting Reddit/Temporal network endpoints:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -t . -v
+```
+
 ## Customizing Messages
 
 The bot replies with certain messages based on interactions with Redditors. The easiest way to override these messages is by hosting the configuration in your subreddit itself! You can do this by create Wiki entries. All wiki entries should be under the parent entry of `trade-confirmation-bot`. For example, to override the content of the monthly post, you would create a wiki page `trade-confirmation-bot/monthly_post.md` and `trade-confirmation-bot/monthly_post_title.md`. I recommend using the Wiki pages to control this rather than overriding the default MD pages in the bot itself, as this allows fellow moderators control over the messages.

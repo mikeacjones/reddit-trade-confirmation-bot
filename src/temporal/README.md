@@ -95,6 +95,14 @@ python -m temporal.starter <command>
 | `lock-submissions` | Manually trigger submission locking |
 | `status` | Show polling workflow status and schedules |
 
+## Testing
+
+Run unit tests from repo root:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -t . -v
+```
+
 ## Workflows
 
 ### CommentPollingWorkflow
