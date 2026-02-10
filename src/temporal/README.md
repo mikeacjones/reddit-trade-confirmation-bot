@@ -156,7 +156,7 @@ Locks old confirmation threads.
 | Activity | Description |
 |----------|-------------|
 | `get_user_flair(username)` | Get user's current flair text and trade count |
-| `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
+| `set_user_flair(username, new_count, old_flair)` | Set user's flair to exact trade count (idempotent) |
 
 Users with custom non-trade flair are treated as untracked for count updates and their flair text is preserved.
 
@@ -191,7 +191,7 @@ A confirmation is valid when:
 
 - Comment contains "confirmed" (case-insensitive)
 - Parent comment exists and is not removed
-- Parent author is valid (not bot, not suspended)
+- Parent author is valid (not bot)
 - Not self-confirmation
 - Parent not already confirmed (checked via saved flag)
 - Confirmer username mentioned in parent comment body

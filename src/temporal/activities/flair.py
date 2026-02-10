@@ -153,7 +153,11 @@ async def get_user_flair(username: str) -> dict:
 
 
 @activity.defn
-async def set_user_flair(username: str, new_count: int) -> dict:
+async def set_user_flair(
+    username: str,
+    new_count: int,
+    old_flair: Optional[str] = None,
+) -> dict:
     """Set a user's flair to a specific trade count.
 
     This activity is idempotent - calling it multiple times with the same
@@ -162,7 +166,7 @@ async def set_user_flair(username: str, new_count: int) -> dict:
     The workflow is responsible for:
     1. Reading current flair via get_user_flair
     2. Calculating the new count (current + 1)
-    3. Passing the exact new_count to this activity
+    3. Passing the exact new_count and the pre-read old_flair to this activity
 
     With a single worker, this ensures that even if the activity retries
     after a crash, the same value is always set.
@@ -171,9 +175,6 @@ async def set_user_flair(username: str, new_count: int) -> dict:
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
-
-    # Get current flair for logging/return value (not for calculation)
-    old_flair = FlairManager.get_flair_text(username, subreddit)
 
     # Set flair to the exact value specified by the workflow
     new_flair = FlairManager.set_flair(username, new_count, subreddit)

@@ -1,6 +1,7 @@
 """Comment-related activities for Temporal bot."""
 
 from dataclasses import asdict
+from types import SimpleNamespace
 from typing import Optional
 
 from temporalio import activity
@@ -161,7 +162,6 @@ async def validate_confirmation(comment_data: dict) -> dict:
     reddit = get_reddit_client()
     bot_username = get_bot_user(reddit).name
     subreddit = get_subreddit(reddit)
-    comment = reddit.comment(id=comment_data["id"])
 
     # Top-level comments can't be confirmations
     if comment_data["is_root"]:
@@ -176,8 +176,12 @@ async def validate_confirmation(comment_data: dict) -> dict:
 
         return asdict(ValidationResult(valid=False))
 
-    # Get parent comment
-    parent_comment = comment.parent()
+    # Get parent comment directly from serialized parent fullname to avoid
+    # fetching the child comment only to resolve parent().
+    parent_fullname = comment_data.get("parent_id", "")
+    if not isinstance(parent_fullname, str) or not parent_fullname.startswith("t1_"):
+        return asdict(ValidationResult(valid=False))
+    parent_comment = reddit.comment(id=parent_fullname[3:])
 
     # Validate parent
     if parent_comment is None or parent_comment.banned_by is not None:
@@ -322,12 +326,15 @@ async def post_confirmation_reply(
     subreddit = get_subreddit(reddit)
     comment = reddit.comment(id=comment_id)
 
-    parent_comment = comment.parent()
     template = TemplateManager.load("trade_confirmation", subreddit)
+    comment_context = SimpleNamespace(author=SimpleNamespace(name=confirmer))
+    parent_comment_context = SimpleNamespace(author=SimpleNamespace(name=parent_author))
 
     reply_text = template.format(
-        comment=comment,
-        parent_comment=parent_comment,
+        confirmer=confirmer,
+        parent_author=parent_author,
+        comment=comment_context,
+        parent_comment=parent_comment_context,
         old_parent_flair=parent_old_flair or "unknown",
         new_parent_flair=parent_new_flair or "unknown",
         old_comment_flair=confirmer_old_flair or "unknown",

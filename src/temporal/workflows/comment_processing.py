@@ -295,7 +295,7 @@ class ProcessConfirmationWorkflow:
                 parent_new_count = parent_trade_count + 1
                 parent_result = await workflow.execute_activity(
                     flair_activities.set_user_flair,
-                    args=[parent_author, parent_new_count],
+                    args=[parent_author, parent_new_count, parent_flair.get("flair_text")],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
@@ -318,7 +318,11 @@ class ProcessConfirmationWorkflow:
                 confirmer_new_count = confirmer_trade_count + 1
                 confirmer_result = await workflow.execute_activity(
                     flair_activities.set_user_flair,
-                    args=[confirmer, confirmer_new_count],
+                    args=[
+                        confirmer,
+                        confirmer_new_count,
+                        confirmer_flair.get("flair_text"),
+                    ],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
