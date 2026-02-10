@@ -129,7 +129,9 @@ async def fetch_new_comments(
                 skipped_count += 1
                 continue
 
-        comments.append(asdict(serialize_comment(comment)))
+        serialized_comment = asdict(serialize_comment(comment))
+        serialized_comment["submission_stickied"] = is_stickied
+        comments.append(serialized_comment)
 
     activity.logger.info(
         (
@@ -164,6 +166,17 @@ async def validate_confirmation(comment_data: dict) -> dict:
 
     # Top-level comments can't be confirmations
     if comment_data["is_root"]:
+        # Root comments from polling include cached submission_stickied so we can
+        # avoid refetching the submission in validation.
+        submission_stickied = comment_data.get("submission_stickied")
+        if isinstance(submission_stickied, bool):
+            if not submission_stickied:
+                return asdict(
+                    ValidationResult(valid=False, reason="old_confirmation_thread")
+                )
+            return asdict(ValidationResult(valid=False))
+
+        # Backward-compatible fallback when old payloads lack submission metadata.
         # Root comments can only start new trades on the current stickied thread.
         # On non-stickied threads, reject as old_confirmation_thread so the workflow
         # can reply with guidance and lock the initiating comment.

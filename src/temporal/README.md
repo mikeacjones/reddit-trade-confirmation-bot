@@ -112,9 +112,8 @@ Continuously polls for new comments across the subreddit.
 Processes a single comment for trade confirmation.
 
 1. Validates the comment via `validate_confirmation`
-2. Marks comment as saved
-3. On invalid with reason: replies with error template
-4. On valid: reads current flairs, calculates new values, sets flairs, posts confirmation reply
+2. On invalid with reason: replies with error template
+3. On valid: reads current flairs, calculates new values, sets flairs, marks the root trade comment saved for dedupe, and posts confirmation reply
 
 **Returns:** `{status, comment_id, parent_author, confirmer, flair_changes}`
 

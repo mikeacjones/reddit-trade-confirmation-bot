@@ -233,14 +233,6 @@ class ProcessConfirmationWorkflow:
 
             # Handle validation failure with template response
             if not validation["valid"]:
-                # Mark invalid comments as processed to avoid repeated replies.
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
-
                 reason = validation.get("reason")
                 if reason:
                     # Reply with error template
@@ -364,14 +356,6 @@ class ProcessConfirmationWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            # Mark confirming comment as saved only after successful processing.
-            await workflow.execute_activity(
-                comment_activities.mark_comment_saved,
-                args=[comment_id],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-
             workflow.logger.info(
                 f"Confirmed trade: {parent_author} ({parent_result.get('new_flair')}) "
                 f"<-> {confirmer} ({confirmer_result.get('new_flair')})"
@@ -423,22 +407,6 @@ class ProcessConfirmationWorkflow:
                     comment_id,
                     type(notification_exc).__name__,
                     str(notification_exc),
-                )
-
-            # Best-effort save to avoid repeated reprocessing of a known bad case.
-            try:
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
-            except Exception as save_exc:
-                workflow.logger.error(
-                    "Failed to mark comment %s as saved after manual-review escalation: %s: %s",
-                    comment_id,
-                    type(save_exc).__name__,
-                    str(save_exc),
                 )
 
             return {

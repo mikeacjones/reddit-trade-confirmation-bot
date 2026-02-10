@@ -99,6 +99,7 @@ class CommentData:
     parent_id: str
     submission_id: str
     saved: bool
+    submission_stickied: Optional[bool] = None
 
 
 @dataclass
