@@ -188,17 +188,136 @@ class ProcessConfirmationWorkflow:
 
         workflow.logger.info(f"Processing comment {comment_id} by {author}")
 
-        # Validate the confirmation
-        validation = await workflow.execute_activity(
-            comment_activities.validate_confirmation,
-            args=[comment_data],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
+        try:
+            # Validate the confirmation
+            validation = await workflow.execute_activity(
+                comment_activities.validate_confirmation,
+                args=[comment_data],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
 
-        # Handle validation failure with template response
-        if not validation["valid"]:
-            # Mark invalid comments as processed to avoid repeated replies.
+            # Handle validation failure with template response
+            if not validation["valid"]:
+                # Mark invalid comments as processed to avoid repeated replies.
+                await workflow.execute_activity(
+                    comment_activities.mark_comment_saved,
+                    args=[comment_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=REDDIT_RETRY_POLICY,
+                )
+
+                reason = validation.get("reason")
+                if reason:
+                    # Reply with error template
+                    await workflow.execute_activity(
+                        comment_activities.reply_to_comment,
+                        args=[comment_id, reason, {"comment": comment_data}],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=REDDIT_RETRY_POLICY,
+                    )
+                    return {
+                        "status": "rejected",
+                        "reason": reason,
+                        "comment_id": comment_id,
+                    }
+
+                return {"status": "skipped", "comment_id": comment_id}
+
+            # Valid confirmation - update flairs
+            parent_author = validation["parent_author"]
+            confirmer = validation["confirmer"]
+            parent_comment_id = validation.get("parent_comment_id")
+
+            # Read current flair values first (these get cached by Temporal on replay)
+            parent_flair = await workflow.execute_activity(
+                flair_activities.get_user_flair,
+                args=[parent_author],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+
+            confirmer_flair = await workflow.execute_activity(
+                flair_activities.get_user_flair,
+                args=[confirmer],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+
+            # For users with non-trade custom flair, preserve existing flair and
+            # still allow the confirmation flow to complete.
+            parent_is_trade_tracked = parent_flair.get("is_trade_tracked", True)
+            parent_trade_count = parent_flair.get("trade_count")
+            if parent_is_trade_tracked and isinstance(parent_trade_count, int):
+                parent_new_count = parent_trade_count + 1
+                parent_result = await workflow.execute_activity(
+                    flair_activities.set_user_flair,
+                    args=[parent_author, parent_new_count],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=REDDIT_RETRY_POLICY,
+                )
+            else:
+                workflow.logger.info(
+                    "Preserving non-trade custom flair for u/%s (no trade count update)",
+                    parent_author,
+                )
+                parent_result = {
+                    "username": parent_author,
+                    "old_flair": parent_flair.get("flair_text"),
+                    "new_flair": parent_flair.get("flair_text"),
+                    "success": True,
+                    "preserved_custom_flair": True,
+                }
+
+            confirmer_is_trade_tracked = confirmer_flair.get("is_trade_tracked", True)
+            confirmer_trade_count = confirmer_flair.get("trade_count")
+            if confirmer_is_trade_tracked and isinstance(confirmer_trade_count, int):
+                confirmer_new_count = confirmer_trade_count + 1
+                confirmer_result = await workflow.execute_activity(
+                    flair_activities.set_user_flair,
+                    args=[confirmer, confirmer_new_count],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=REDDIT_RETRY_POLICY,
+                )
+            else:
+                workflow.logger.info(
+                    "Preserving non-trade custom flair for u/%s (no trade count update)",
+                    confirmer,
+                )
+                confirmer_result = {
+                    "username": confirmer,
+                    "old_flair": confirmer_flair.get("flair_text"),
+                    "new_flair": confirmer_flair.get("flair_text"),
+                    "success": True,
+                    "preserved_custom_flair": True,
+                }
+
+            # Mark parent comment as saved too
+            if parent_comment_id:
+                await workflow.execute_activity(
+                    comment_activities.mark_comment_saved,
+                    args=[parent_comment_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=REDDIT_RETRY_POLICY,
+                )
+
+            # Post confirmation reply
+            await workflow.execute_activity(
+                comment_activities.post_confirmation_reply,
+                args=[
+                    comment_id,
+                    parent_author,
+                    confirmer,
+                    parent_result.get("old_flair"),
+                    parent_result.get("new_flair"),
+                    confirmer_result.get("old_flair"),
+                    confirmer_result.get("new_flair"),
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+
+            # Mark confirming comment as saved only after successful processing.
             await workflow.execute_activity(
                 comment_activities.mark_comment_saved,
                 args=[comment_id],
@@ -206,134 +325,71 @@ class ProcessConfirmationWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            reason = validation.get("reason")
-            if reason:
-                # Reply with error template
+            workflow.logger.info(
+                f"Confirmed trade: {parent_author} ({parent_result.get('new_flair')}) "
+                f"<-> {confirmer} ({confirmer_result.get('new_flair')})"
+            )
+
+            return {
+                "status": "confirmed",
+                "comment_id": comment_id,
+                "parent_author": parent_author,
+                "confirmer": confirmer,
+                "parent_new_flair": parent_result.get("new_flair"),
+                "confirmer_new_flair": confirmer_result.get("new_flair"),
+            }
+        except Exception as exc:
+            error_type = type(exc).__name__
+            error_message = str(exc)
+            workflow.logger.error(
+                "Manual review required for comment %s by %s: %s: %s",
+                comment_id,
+                author,
+                error_type,
+                error_message,
+            )
+
+            # Best-effort notification so moderators can resolve manually.
+            try:
                 await workflow.execute_activity(
-                    comment_activities.reply_to_comment,
-                    args=[comment_id, reason, {"comment": comment_data}],
+                    notification_activities.send_pushover_notification,
+                    args=[
+                        (
+                            f"[r/{SUBREDDIT_NAME}] Manual review required for "
+                            f"comment {comment_id} by u/{author}: {error_type}: "
+                            f"{error_message}"
+                        )
+                    ],
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
+            except Exception as notification_exc:
+                workflow.logger.error(
+                    "Failed to send manual review alert for %s: %s: %s",
+                    comment_id,
+                    type(notification_exc).__name__,
+                    str(notification_exc),
+                )
+
+            # Best-effort save to avoid repeated reprocessing of a known bad case.
+            try:
+                await workflow.execute_activity(
+                    comment_activities.mark_comment_saved,
+                    args=[comment_id],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
-                return {
-                    "status": "rejected",
-                    "reason": reason,
-                    "comment_id": comment_id,
-                }
+            except Exception as save_exc:
+                workflow.logger.error(
+                    "Failed to mark comment %s as saved after manual-review escalation: %s: %s",
+                    comment_id,
+                    type(save_exc).__name__,
+                    str(save_exc),
+                )
 
-            return {"status": "skipped", "comment_id": comment_id}
-
-        # Valid confirmation - update flairs
-        parent_author = validation["parent_author"]
-        confirmer = validation["confirmer"]
-        parent_comment_id = validation.get("parent_comment_id")
-
-        # Read current flair values first (these get cached by Temporal on replay)
-        parent_flair = await workflow.execute_activity(
-            flair_activities.get_user_flair,
-            args=[parent_author],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        confirmer_flair = await workflow.execute_activity(
-            flair_activities.get_user_flair,
-            args=[confirmer],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        # For users with non-trade custom flair, preserve existing flair and
-        # still allow the confirmation flow to complete.
-        parent_is_trade_tracked = parent_flair.get("is_trade_tracked", True)
-        parent_trade_count = parent_flair.get("trade_count")
-        if parent_is_trade_tracked and isinstance(parent_trade_count, int):
-            parent_new_count = parent_trade_count + 1
-            parent_result = await workflow.execute_activity(
-                flair_activities.set_user_flair,
-                args=[parent_author, parent_new_count],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-        else:
-            workflow.logger.info(
-                "Preserving non-trade custom flair for u/%s (no trade count update)",
-                parent_author,
-            )
-            parent_result = {
-                "username": parent_author,
-                "old_flair": parent_flair.get("flair_text"),
-                "new_flair": parent_flair.get("flair_text"),
-                "success": True,
-                "preserved_custom_flair": True,
+            return {
+                "status": "manual_review_required",
+                "comment_id": comment_id,
+                "author": author,
+                "error_type": error_type,
+                "error": error_message,
             }
-
-        confirmer_is_trade_tracked = confirmer_flair.get("is_trade_tracked", True)
-        confirmer_trade_count = confirmer_flair.get("trade_count")
-        if confirmer_is_trade_tracked and isinstance(confirmer_trade_count, int):
-            confirmer_new_count = confirmer_trade_count + 1
-            confirmer_result = await workflow.execute_activity(
-                flair_activities.set_user_flair,
-                args=[confirmer, confirmer_new_count],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-        else:
-            workflow.logger.info(
-                "Preserving non-trade custom flair for u/%s (no trade count update)",
-                confirmer,
-            )
-            confirmer_result = {
-                "username": confirmer,
-                "old_flair": confirmer_flair.get("flair_text"),
-                "new_flair": confirmer_flair.get("flair_text"),
-                "success": True,
-                "preserved_custom_flair": True,
-            }
-
-        # Mark parent comment as saved too
-        if parent_comment_id:
-            await workflow.execute_activity(
-                comment_activities.mark_comment_saved,
-                args=[parent_comment_id],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-
-        # Post confirmation reply
-        await workflow.execute_activity(
-            comment_activities.post_confirmation_reply,
-            args=[
-                comment_id,
-                parent_author,
-                confirmer,
-                parent_result.get("old_flair"),
-                parent_result.get("new_flair"),
-                confirmer_result.get("old_flair"),
-                confirmer_result.get("new_flair"),
-            ],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        # Mark confirming comment as saved only after successful processing.
-        await workflow.execute_activity(
-            comment_activities.mark_comment_saved,
-            args=[comment_id],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        workflow.logger.info(
-            f"Confirmed trade: {parent_author} ({parent_result.get('new_flair')}) "
-            f"<-> {confirmer} ({confirmer_result.get('new_flair')})"
-        )
-
-        return {
-            "status": "confirmed",
-            "comment_id": comment_id,
-            "parent_author": parent_author,
-            "confirmer": confirmer,
-            "parent_new_flair": parent_result.get("new_flair"),
-            "confirmer_new_flair": confirmer_result.get("new_flair"),
-        }

@@ -118,6 +118,9 @@ Processes a single comment for trade confirmation.
 
 **Returns:** `{status, comment_id, parent_author, confirmer, flair_changes}`
 
+On non-retryable processing failures, it sends a moderator notification and returns
+`status: manual_review_required` so the child workflow ID is not relaunched automatically.
+
 ### MonthlyPostWorkflow
 
 Creates the monthly confirmation thread.
