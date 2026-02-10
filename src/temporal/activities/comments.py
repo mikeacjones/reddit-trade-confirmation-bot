@@ -169,23 +169,10 @@ async def validate_confirmation(comment_data: dict) -> dict:
         # Root comments from polling include cached submission_stickied so we can
         # avoid refetching the submission in validation.
         submission_stickied = comment_data.get("submission_stickied")
-        if isinstance(submission_stickied, bool):
-            if not submission_stickied:
-                return asdict(
-                    ValidationResult(valid=False, reason="old_confirmation_thread")
-                )
-            return asdict(ValidationResult(valid=False))
-
-        # Backward-compatible fallback when old payloads lack submission metadata.
-        # Root comments can only start new trades on the current stickied thread.
-        # On non-stickied threads, reject as old_confirmation_thread so the workflow
-        # can reply with guidance and lock the initiating comment.
-        submission = reddit.submission(id=comment_data["submission_id"])
-        if not submission.stickied:
+        if submission_stickied is False:
             return asdict(
                 ValidationResult(valid=False, reason="old_confirmation_thread")
             )
-
         return asdict(ValidationResult(valid=False))
 
     # Get parent comment directly from serialized parent fullname to avoid
