@@ -246,24 +246,53 @@ class ProcessConfirmationWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        # Calculate new flair values in the workflow (deterministic)
-        parent_new_count = parent_flair["trade_count"] + 1
-        confirmer_new_count = confirmer_flair["trade_count"] + 1
+        # For users with non-trade custom flair, preserve existing flair and
+        # still allow the confirmation flow to complete.
+        parent_is_trade_tracked = parent_flair.get("is_trade_tracked", True)
+        parent_trade_count = parent_flair.get("trade_count")
+        if parent_is_trade_tracked and isinstance(parent_trade_count, int):
+            parent_new_count = parent_trade_count + 1
+            parent_result = await workflow.execute_activity(
+                flair_activities.set_user_flair,
+                args=[parent_author, parent_new_count],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+        else:
+            workflow.logger.info(
+                "Preserving non-trade custom flair for u/%s (no trade count update)",
+                parent_author,
+            )
+            parent_result = {
+                "username": parent_author,
+                "old_flair": parent_flair.get("flair_text"),
+                "new_flair": parent_flair.get("flair_text"),
+                "success": True,
+                "preserved_custom_flair": True,
+            }
 
-        # Set flairs to exact values - idempotent even on retry/replay
-        parent_result = await workflow.execute_activity(
-            flair_activities.set_user_flair,
-            args=[parent_author, parent_new_count],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
-
-        confirmer_result = await workflow.execute_activity(
-            flair_activities.set_user_flair,
-            args=[confirmer, confirmer_new_count],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=REDDIT_RETRY_POLICY,
-        )
+        confirmer_is_trade_tracked = confirmer_flair.get("is_trade_tracked", True)
+        confirmer_trade_count = confirmer_flair.get("trade_count")
+        if confirmer_is_trade_tracked and isinstance(confirmer_trade_count, int):
+            confirmer_new_count = confirmer_trade_count + 1
+            confirmer_result = await workflow.execute_activity(
+                flair_activities.set_user_flair,
+                args=[confirmer, confirmer_new_count],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+        else:
+            workflow.logger.info(
+                "Preserving non-trade custom flair for u/%s (no trade count update)",
+                confirmer,
+            )
+            confirmer_result = {
+                "username": confirmer,
+                "old_flair": confirmer_flair.get("flair_text"),
+                "new_flair": confirmer_flair.get("flair_text"),
+                "success": True,
+                "preserved_custom_flair": True,
+            }
 
         # Mark parent comment as saved too
         if parent_comment_id:

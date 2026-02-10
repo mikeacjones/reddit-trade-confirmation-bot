@@ -75,14 +75,27 @@ class FlairManager:
         start, end = match.span(1)
         return flair_template[:start] + str(count) + flair_template[end:]
 
-    @classmethod
-    def get_flair_count(cls, username: str, subreddit) -> int:
-        """Get current trade count from user's flair. Returns 0 if no flair."""
-        flair_text = next(subreddit.flair(username))["flair_text"]
+    @staticmethod
+    def parse_trade_count(flair_text: Optional[str]) -> Optional[int]:
+        """Parse trade count from flair text.
+
+        Returns:
+            int: trade count when flair is empty (treat as 0) or matches the trade pattern.
+            None: flair exists but does not include a trade count pattern.
+        """
         if not flair_text:
             return 0
         match = FLAIR_PATTERN.search(flair_text)
-        return int(match.group(1)) if match else 0
+        return int(match.group(1)) if match else None
+
+    @classmethod
+    def get_flair_count(cls, username: str, subreddit) -> Optional[int]:
+        """Get current trade count from user's flair.
+
+        Returns 0 if no flair, or None for non-trade custom flair.
+        """
+        flair_text = next(subreddit.flair(username))["flair_text"]
+        return cls.parse_trade_count(flair_text)
 
     @classmethod
     def get_flair_text(cls, username: str, subreddit) -> Optional[str]:
@@ -118,21 +131,24 @@ async def get_user_flair(username: str) -> dict:
     and trade count. Used by workflows to calculate new flair values before
     calling set_user_flair.
 
-    Returns dict with username, flair_text, and trade_count.
+    Returns dict with:
+    - username
+    - flair_text
+    - trade_count: int for tracked users, None for non-trade custom flair
+    - is_trade_tracked: True when trade_count should be incremented
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count = 0
-    if flair_text:
-        match = FLAIR_PATTERN.search(flair_text)
-        trade_count = int(match.group(1)) if match else 0
+    trade_count = FlairManager.parse_trade_count(flair_text)
+    is_trade_tracked = trade_count is not None
 
     return {
         "username": username,
         "flair_text": flair_text,
         "trade_count": trade_count,
+        "is_trade_tracked": is_trade_tracked,
     }
 
 

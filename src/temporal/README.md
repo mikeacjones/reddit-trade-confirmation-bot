@@ -153,6 +153,8 @@ Locks old confirmation threads.
 | `get_user_flair(username)` | Get user's current flair text and trade count |
 | `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
 
+Users with custom non-trade flair are treated as untracked for count updates and their flair text is preserved.
+
 ### Submission Activities (`submissions.py`)
 
 | Activity | Description |

@@ -80,3 +80,5 @@ When creating flairs, avoid overlapping ranges. Example:
 - `Trades: 2-10`
 - `Trades: 11-50`
 - `Trades: 51-100`
+
+Users with custom flair that does not contain a `Trades: <count>` value are preserved as-is and are not overwritten by trade-count templates.
