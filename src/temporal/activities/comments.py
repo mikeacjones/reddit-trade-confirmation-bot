@@ -22,7 +22,7 @@ from .reddit import (
 
 
 @activity.defn
-async def fetch_new_comments(
+def fetch_new_comments(
     last_seen_id: Optional[str] = None,
 ) -> list[dict]:
     """Fetch new comments from bot submissions across the subreddit.
@@ -116,7 +116,7 @@ async def fetch_new_comments(
 
 
 @activity.defn
-async def validate_confirmation(comment_data: dict) -> dict:
+def validate_confirmation(comment_data: dict) -> dict:
     """Validate a confirmation comment.
 
     Returns ValidationResult as dict.
@@ -216,7 +216,7 @@ async def validate_confirmation(comment_data: dict) -> dict:
 
 
 @activity.defn
-async def mark_comment_saved(comment_id: str) -> bool:
+def mark_comment_saved(comment_id: str) -> bool:
     """Mark a comment as saved (processed)."""
     reddit = get_reddit_client()
     comment = reddit.comment(id=comment_id)
@@ -225,7 +225,7 @@ async def mark_comment_saved(comment_id: str) -> bool:
 
 
 @activity.defn
-async def reply_to_comment(
+def reply_to_comment(
     comment_id: str,
     template_name: str,
     format_args: Optional[dict] = None,
@@ -255,7 +255,7 @@ async def reply_to_comment(
 
 
 @activity.defn
-async def post_confirmation_reply(
+def post_confirmation_reply(
     comment_id: str,
     parent_author: str,
     confirmer: str,

@@ -13,7 +13,7 @@ from .reddit import get_bot_user, get_reddit_client, get_subreddit
 
 
 @activity.defn
-async def unsticky_previous_post() -> bool:
+def unsticky_previous_post() -> bool:
     """Unsticky the previous month's post."""
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
@@ -34,7 +34,7 @@ async def unsticky_previous_post() -> bool:
 
 
 @activity.defn
-async def create_monthly_post() -> str:
+def create_monthly_post() -> str:
     """Create a new monthly confirmation thread.
 
     This activity is idempotent: if a post for the current month already exists,
@@ -92,7 +92,7 @@ async def create_monthly_post() -> str:
 
 
 @activity.defn
-async def lock_previous_submissions() -> int:
+def lock_previous_submissions() -> int:
     """Lock submissions from previous months.
 
     Returns the number of submissions locked.

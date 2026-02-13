@@ -7,8 +7,9 @@ from .comments import (
     reply_to_comment,
     validate_confirmation,
 )
-from .flair import get_user_flair, set_user_flair
+from .flair import get_user_flair, increment_user_flair_atomic, set_user_flair
 from .notifications import send_pushover_notification
+from .temporal_bridge import request_user_flair_increment
 from .submissions import (
     create_monthly_post,
     lock_previous_submissions,
@@ -25,6 +26,8 @@ __all__ = [
     # Flair
     "get_user_flair",
     "set_user_flair",
+    "increment_user_flair_atomic",
+    "request_user_flair_increment",
     # Submissions
     "create_monthly_post",
     "unsticky_previous_post",

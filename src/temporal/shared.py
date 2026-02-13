@@ -123,6 +123,26 @@ class FlairUpdateResult:
     success: bool
 
 
+@dataclass
+class FlairIncrementRequest:
+    """Request to increment a user's flair count."""
+
+    request_id: str
+    delta: int = 1
+
+
+@dataclass
+class FlairIncrementResult:
+    """Result of processing a flair increment request."""
+
+    username: str
+    applied: bool
+    old_count: int
+    new_count: int
+    old_flair: Optional[str]
+    new_flair: Optional[str]
+
+
 # ============================================================================
 # Utility Functions (workflow-safe - no praw)
 # ============================================================================

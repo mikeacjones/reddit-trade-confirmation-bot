@@ -34,9 +34,11 @@ from temporal.activities import (
     create_monthly_post,
     fetch_new_comments,
     get_user_flair,
+    increment_user_flair_atomic,
     lock_previous_submissions,
     mark_comment_saved,
     post_confirmation_reply,
+    request_user_flair_increment,
     reply_to_comment,
     send_pushover_notification,
     set_user_flair,
@@ -49,6 +51,7 @@ from temporal.workflows import (
     LockSubmissionsWorkflow,
     MonthlyPostWorkflow,
     ProcessConfirmationWorkflow,
+    UserFlairWorkflow,
 )
 
 
@@ -70,12 +73,14 @@ async def main():
             ProcessConfirmationWorkflow,
             MonthlyPostWorkflow,
             LockSubmissionsWorkflow,
+            UserFlairWorkflow,
         ],
         activities=[
             fetch_new_comments,
             validate_confirmation,
             get_user_flair,
             set_user_flair,
+            increment_user_flair_atomic,
             mark_comment_saved,
             reply_to_comment,
             post_confirmation_reply,
@@ -83,6 +88,7 @@ async def main():
             unsticky_previous_post,
             lock_previous_submissions,
             send_pushover_notification,
+            request_user_flair_increment,
         ],
         workflow_runner=SandboxedWorkflowRunner(
             restrictions=SandboxRestrictions.default.with_passthrough_modules(

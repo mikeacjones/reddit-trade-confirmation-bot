@@ -9,7 +9,7 @@ from ..shared import SECRETS
 
 
 @activity.defn
-async def send_pushover_notification(message: str) -> bool:
+def send_pushover_notification(message: str) -> bool:
     """Send notification via Pushover.
 
     Returns True if notification was sent successfully.
