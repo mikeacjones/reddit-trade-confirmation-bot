@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 from temporalio import activity
@@ -158,8 +159,6 @@ def validate_confirmation(comment_data: dict) -> dict:
     """
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
-    subreddit = get_subreddit(reddit)
-    comment = reddit.comment(id=comment_data["id"])
 
     # Top-level comments can't be confirmations
     if comment_data["is_root"]:
@@ -177,6 +176,9 @@ def validate_confirmation(comment_data: dict) -> dict:
                 return asdict(ValidationResult(valid=False, reason="old_confirmation_thread"))
 
         return asdict(ValidationResult(valid=False))
+
+    comment = reddit.comment(id=comment_data["id"])
+    subreddit = get_subreddit(reddit)
 
     # Get parent comment
     parent_comment = comment.parent()
@@ -282,7 +284,6 @@ def reply_to_comment(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    reply.save()
     activity.logger.info("Replied to comment: https://reddit.com%s", reply.permalink)
     return reply.id
 
@@ -305,8 +306,9 @@ def post_confirmation_reply(
     subreddit = get_subreddit(reddit)
     comment = reddit.comment(id=comment_id)
 
-    parent_comment = comment.parent()
     template = TemplateManager.load("trade_confirmation", subreddit)
+    # Use already-validated parent author to avoid fetching parent comment again.
+    parent_comment = SimpleNamespace(author=SimpleNamespace(name=parent_author))
 
     reply_text = template.format(
         comment=comment,
@@ -321,6 +323,5 @@ def post_confirmation_reply(
     if reply is None:
         raise RuntimeError("Confirmation reply failed to post")
 
-    reply.save()
     activity.logger.info("Trade confirmed: https://reddit.com%s", reply.permalink)
     return reply.id

@@ -42,7 +42,7 @@ class MonthlyPostWorkflow:
         )
 
         # Unsticky previous post
-        await workflow.execute_activity(
+        previous_submission_data = await workflow.execute_activity(
             submission_activities.unsticky_previous_post,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
@@ -51,6 +51,7 @@ class MonthlyPostWorkflow:
         # Create the new monthly post (idempotent - returns existing if already created)
         submission_id = await workflow.execute_activity(
             submission_activities.create_monthly_post,
+            args=[previous_submission_data],
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
         )
