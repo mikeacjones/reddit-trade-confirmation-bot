@@ -24,11 +24,18 @@ from .reddit import (
 @activity.defn
 def fetch_new_comments(
     last_seen_id: Optional[str] = None,
-) -> list[dict]:
+) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
 
-    Returns list of serialized CommentData dicts for comments that need processing.
-    Filters out and marks as saved comments that clearly don't need child workflows.
+    Returns:
+        dict with:
+            - comments: list of serialized CommentData dicts to process
+            - newest_seen_id: newest comment ID observed during this poll
+            - watermark_found: whether we reached `last_seen_id` while scanning
+            - listing_exhausted: whether we consumed the listing window
+            - scanned_count: number of comments scanned in this poll
+
+    Filters out comments that clearly don't need workflows.
     Sends heartbeats during processing to signal liveness.
     """
     reddit = get_reddit_client()
@@ -44,19 +51,32 @@ def fetch_new_comments(
     activity.heartbeat("Fetching comments from subreddit")
 
     comments = []
-    skipped_comments = []  # Comments to mark as saved without processing
-    processed_count = 0
+    skipped_count = 0
+    scanned_count = 0
+    newest_seen_id = last_seen_id
+    newest_seen_value = int(last_seen_id, 36) if last_seen_id else None
+    last_seen_value = int(last_seen_id, 36) if last_seen_id else None
+    watermark_found = last_seen_id is None
+    listing_exhausted = True
 
-    for comment in subreddit.comments(limit=100):
-        # Heartbeat every 10 comments to signal we're still alive
-        processed_count += 1
-        if processed_count % 10 == 0:
-            activity.heartbeat(f"Processed {processed_count} comments")
+    # Iterate until we find the watermark comment to avoid missing bursts.
+    for comment in subreddit.comments(limit=None):
+        scanned_count += 1
+        if scanned_count % 50 == 0:
+            activity.heartbeat(f"Scanned {scanned_count} comments")
 
-        # Skip if we've already seen this comment
-        # Reddit IDs are base36 - must convert to int for chronological comparison
-        if last_seen_id and int(comment.id, 36) <= int(last_seen_id, 36):
-            continue
+        comment_id_value = int(comment.id, 36)
+
+        # Results are newest-first; once we reach watermark, remaining are older.
+        if last_seen_value is not None and comment_id_value <= last_seen_value:
+            watermark_found = True
+            listing_exhausted = False
+            break
+
+        # Track newest observed comment even when filtered from processing.
+        if newest_seen_value is None or comment_id_value > newest_seen_value:
+            newest_seen_id = comment.id
+            newest_seen_value = comment_id_value
 
         # Skip already processed
         if comment.saved:
@@ -102,17 +122,32 @@ def fetch_new_comments(
                 "confirmed" not in comment_body_lower
                 and "approved" not in comment_body_lower
             ):
-                skipped_comments.append(comment)
+                skipped_count += 1
                 continue
 
-        comments.append(asdict(serialize_comment(comment)))
+        serialized_comment = asdict(serialize_comment(comment))
+        serialized_comment["submission_stickied"] = is_stickied
+        comments.append(serialized_comment)
 
     activity.logger.info(
-        "Fetched %d comments for processing, skipped %d from subreddit",
+        (
+            "Fetched %d comments for processing, skipped %d from subreddit, "
+            "scanned=%d, newest_seen_id=%s, watermark_found=%s, listing_exhausted=%s"
+        ),
         len(comments),
-        len(skipped_comments),
+        skipped_count,
+        scanned_count,
+        newest_seen_id,
+        watermark_found,
+        listing_exhausted,
     )
-    return comments
+    return {
+        "comments": comments,
+        "newest_seen_id": newest_seen_id,
+        "watermark_found": watermark_found,
+        "listing_exhausted": listing_exhausted,
+        "scanned_count": scanned_count,
+    }
 
 
 @activity.defn
@@ -128,20 +163,18 @@ def validate_confirmation(comment_data: dict) -> dict:
 
     # Top-level comments can't be confirmations
     if comment_data["is_root"]:
-        # Check if this is in an old thread (non-stickied)
-        submission = reddit.submission(id=comment_data["submission_id"])
-        if not submission.stickied:
-            comment_date = datetime.fromtimestamp(
-                comment_data["created_utc"], tz=timezone.utc
-            )
+        # Polling includes cached stickied state; fall back to direct fetch if absent.
+        submission_stickied = comment_data.get("submission_stickied")
+        if submission_stickied is None:
+            submission = reddit.submission(id=comment_data["submission_id"])
+            submission_stickied = submission.stickied
+
+        if submission_stickied is False:
+            comment_date = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
             now = datetime.now(timezone.utc)
-            is_current_month = (
-                comment_date.year == now.year and comment_date.month == now.month
-            )
+            is_current_month = comment_date.year == now.year and comment_date.month == now.month
             if not is_current_month:
-                return asdict(
-                    ValidationResult(valid=False, reason="old_confirmation_thread")
-                )
+                return asdict(ValidationResult(valid=False, reason="old_confirmation_thread"))
 
         return asdict(ValidationResult(valid=False))
 
