@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -65,6 +66,8 @@ async def main():
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
     logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
 
+    activity_executor = ThreadPoolExecutor(max_workers=32)
+
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
@@ -90,6 +93,7 @@ async def main():
             lock_previous_submissions,
             send_pushover_notification,
         ],
+        activity_executor=activity_executor,
         workflow_runner=SandboxedWorkflowRunner(
             restrictions=SandboxRestrictions.default.with_passthrough_modules(
                 "praw", "requests", "urllib3"
