@@ -76,13 +76,16 @@ class FlairManager:
         return flair_template[:start] + str(count) + flair_template[end:]
 
     @classmethod
-    def get_flair_count(cls, username: str, subreddit) -> int:
-        """Get current trade count from user's flair. Returns 0 if no flair."""
+    def get_flair_count(cls, username: str, subreddit) -> Optional[int]:
+        """Get current trade count from user's flair.
+
+        Returns 0 for empty flair, or None for non-trade custom flair.
+        """
         flair_text = next(subreddit.flair(username))["flair_text"]
         if not flair_text:
             return 0
         match = FLAIR_PATTERN.search(flair_text)
-        return int(match.group(1)) if match else 0
+        return int(match.group(1)) if match else None
 
     @classmethod
     def get_flair_text(cls, username: str, subreddit) -> Optional[str]:
@@ -118,26 +121,31 @@ def get_user_flair(username: str) -> dict:
     and trade count. Used by workflows to calculate new flair values before
     calling set_user_flair.
 
-    Returns dict with username, flair_text, and trade_count.
+    Returns dict with username, flair_text, trade_count, and is_trade_tracked.
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count = 0
+    trade_count: Optional[int] = 0
     if flair_text:
         match = FLAIR_PATTERN.search(flair_text)
-        trade_count = int(match.group(1)) if match else 0
+        trade_count = int(match.group(1)) if match else None
 
     return {
         "username": username,
         "flair_text": flair_text,
         "trade_count": trade_count,
+        "is_trade_tracked": trade_count is not None,
     }
 
 
 @activity.defn
-def set_user_flair(username: str, new_count: int) -> dict:
+def set_user_flair(
+    username: str,
+    new_count: int,
+    old_flair: Optional[str] = None,
+) -> dict:
     """Set a user's flair to a specific trade count.
 
     This activity is idempotent - calling it multiple times with the same
@@ -156,9 +164,6 @@ def set_user_flair(username: str, new_count: int) -> dict:
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
 
-    # Get current flair for logging/return value (not for calculation)
-    old_flair = FlairManager.get_flair_text(username, subreddit)
-
     # Set flair to the exact value specified by the workflow
     new_flair = FlairManager.set_flair(username, new_count, subreddit)
     activity.logger.info("u/%s flair set: '%s' -> '%s'", username, old_flair, new_flair)
@@ -171,4 +176,3 @@ def set_user_flair(username: str, new_count: int) -> dict:
             success=new_flair is not None,
         )
     )
-
