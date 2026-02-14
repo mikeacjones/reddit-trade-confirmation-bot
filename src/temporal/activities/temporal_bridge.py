@@ -4,7 +4,8 @@ import os
 
 from temporalio import activity
 from temporalio.client import Client, WithStartWorkflowOperation
-from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from ..shared import SUBREDDIT_NAME, TASK_QUEUE
 
@@ -37,3 +38,21 @@ async def request_flair_increment(request: dict) -> dict:
         request,
         start_workflow_operation=start_op,
     )
+
+
+@activity.defn
+async def start_confirmation_workflow(workflow_id: str, comment_data: dict) -> bool:
+    """Start independent confirmation workflow; return False if already running."""
+    client = await _get_temporal_client()
+
+    try:
+        await client.start_workflow(
+            "ProcessConfirmationWorkflow",
+            args=[comment_data],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        )
+        return True
+    except WorkflowAlreadyStartedError:
+        return False

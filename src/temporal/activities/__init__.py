@@ -14,7 +14,7 @@ from .submissions import (
     lock_previous_submissions,
     unsticky_previous_post,
 )
-from .temporal_bridge import request_flair_increment
+from .temporal_bridge import request_flair_increment, start_confirmation_workflow
 
 __all__ = [
     # Comments
@@ -27,6 +27,7 @@ __all__ = [
     "get_user_flair",
     "set_user_flair",
     "request_flair_increment",
+    "start_confirmation_workflow",
     # Submissions
     "create_monthly_post",
     "unsticky_previous_post",
