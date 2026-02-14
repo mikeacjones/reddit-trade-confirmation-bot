@@ -63,10 +63,36 @@ class FlairCoordinatorWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            target_count = current["trade_count"] + req.delta
+            current_count = current.get("trade_count")
+            is_trade_tracked = current.get("is_trade_tracked", True)
+
+            # Preserve non-trade custom flairs rather than coercing them to 0.
+            if not is_trade_tracked or not isinstance(current_count, int):
+                result = asdict(
+                    FlairIncrementResult(
+                        username=req.username,
+                        applied=False,
+                        old_count=current_count if isinstance(current_count, int) else None,
+                        new_count=current_count if isinstance(current_count, int) else None,
+                        old_flair=current.get("flair_text"),
+                        new_flair=current.get("flair_text"),
+                    )
+                )
+                self._results_by_request_id[req.request_id] = result
+                self._applied_count += 1
+
+                while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
+                    oldest_key = next(iter(self._results_by_request_id))
+                    del self._results_by_request_id[oldest_key]
+
+                if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
+                    self._should_continue_as_new = True
+                return result
+
+            target_count = current_count + req.delta
             set_result = await workflow.execute_activity(
                 flair_activities.set_user_flair,
-                args=[req.username, target_count],
+                args=[req.username, target_count, current.get("flair_text")],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
@@ -75,7 +101,7 @@ class FlairCoordinatorWorkflow:
                 FlairIncrementResult(
                     username=req.username,
                     applied=True,
-                    old_count=current["trade_count"],
+                    old_count=current_count,
                     new_count=target_count,
                     old_flair=current.get("flair_text"),
                     new_flair=set_result.get("new_flair"),

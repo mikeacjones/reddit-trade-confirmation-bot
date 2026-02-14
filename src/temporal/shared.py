@@ -138,8 +138,8 @@ class FlairIncrementResult:
 
     username: str
     applied: bool
-    old_count: int
-    new_count: int
+    old_count: Optional[int]
+    new_count: Optional[int]
     old_flair: Optional[str]
     new_flair: Optional[str]
 
