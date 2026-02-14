@@ -14,7 +14,7 @@ from .reddit import get_bot_user, get_reddit_client, get_subreddit
 
 
 @activity.defn
-def unsticky_previous_post() -> bool:
+def unsticky_previous_post() -> dict | None:
     """Unsticky the previous month's post."""
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
@@ -23,7 +23,7 @@ def unsticky_previous_post() -> bool:
         previous_submission = next(bot_user.submissions.new(limit=1))
     except StopIteration:
         activity.logger.info("No previous post to unsticky")
-        return True
+        return None
 
     if previous_submission.stickied:
         previous_submission.mod.sticky(state=False)
@@ -31,11 +31,16 @@ def unsticky_previous_post() -> bool:
             "Unstickied previous post: %s", previous_submission.permalink
         )
 
-    return True
+    return {
+        "id": previous_submission.id,
+        "title": previous_submission.title,
+        "permalink": previous_submission.permalink,
+        "created_utc": previous_submission.created_utc,
+    }
 
 
 @activity.defn
-def create_monthly_post() -> str:
+def create_monthly_post(previous_submission_data: dict | None = None) -> str:
     """Create a new monthly confirmation thread.
 
     This activity is idempotent: if a post for the current month already exists,
@@ -50,23 +55,38 @@ def create_monthly_post() -> str:
     now = datetime.now(timezone.utc)
 
     # Idempotency check: see if we already created a post this month
-    try:
-        last_post = next(bot_user.submissions.new(limit=1))
-        post_date = datetime.fromtimestamp(last_post.created_utc, tz=timezone.utc)
+    previous_submission = previous_submission_data
+    if previous_submission is None:
+        try:
+            last_post = next(bot_user.submissions.new(limit=1))
+            previous_submission = {
+                "id": last_post.id,
+                "title": last_post.title,
+                "permalink": last_post.permalink,
+                "created_utc": last_post.created_utc,
+            }
+        except StopIteration:
+            previous_submission = None
+
+    if previous_submission is not None:
+        post_date = datetime.fromtimestamp(previous_submission["created_utc"], tz=timezone.utc)
         if post_date.year == now.year and post_date.month == now.month:
             activity.logger.info(
                 "Monthly post already exists for this month (%s), returning existing ID (idempotent)",
-                last_post.id,
+                previous_submission["id"],
             )
-            return last_post.id
-        previous_submission = last_post
-    except StopIteration:
-        previous_submission = None
+            return previous_submission["id"]
 
-    template_submission = previous_submission or SimpleNamespace(
-        title="Previous monthly thread",
-        permalink=f"https://www.reddit.com/r/{SUBREDDIT_NAME}/",
-    )
+    if previous_submission:
+        template_submission = SimpleNamespace(
+            title=previous_submission["title"],
+            permalink=previous_submission["permalink"],
+        )
+    else:
+        template_submission = SimpleNamespace(
+            title="Previous monthly thread",
+            permalink=f"https://www.reddit.com/r/{SUBREDDIT_NAME}/",
+        )
 
     # Load templates
     post_template = TemplateManager.load("monthly_post", subreddit)

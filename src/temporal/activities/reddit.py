@@ -10,6 +10,7 @@ import praw.models
 from ..shared import SECRETS, SUBREDDIT_NAME, CommentData
 
 _reddit_client: praw.Reddit | None = None
+_bot_user: praw.models.Redditor | None = None
 
 
 def get_reddit_client() -> praw.Reddit:
@@ -33,10 +34,13 @@ def get_subreddit(reddit: praw.Reddit) -> praw.models.Subreddit:
 
 def get_bot_user(reddit: praw.Reddit) -> praw.models.Redditor:
     """Get the bot user."""
-    user = reddit.user.me()
-    if user is None:
-        raise RuntimeError("Reddit client is in read-only mode - not authenticated")
-    return user
+    global _bot_user
+    if _bot_user is None:
+        user = reddit.user.me()
+        if user is None:
+            raise RuntimeError("Reddit client is in read-only mode - not authenticated")
+        _bot_user = user
+    return _bot_user
 
 
 def should_process_redditor(redditor, bot_user) -> bool:
