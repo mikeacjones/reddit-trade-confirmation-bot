@@ -153,7 +153,6 @@ Locks old confirmation threads.
 |----------|-------------|
 | `get_user_flair(username)` | Get user's current flair text and trade count |
 | `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
-| `increment_user_flair_atomic(username, delta)` | Atomic read+increment+set for one user |
 
 ### Temporal Bridge Activities (`temporal_bridge.py`)
 

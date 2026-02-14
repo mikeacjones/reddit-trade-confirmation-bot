@@ -172,32 +172,3 @@ def set_user_flair(username: str, new_count: int) -> dict:
         )
     )
 
-
-@activity.defn
-def increment_user_flair_atomic(username: str, delta: int) -> dict:
-    """Increment a user's flair count in a single activity execution."""
-    reddit = get_reddit_client()
-    subreddit = get_subreddit(reddit)
-
-    old_flair = FlairManager.get_flair_text(username, subreddit)
-    old_count = FlairManager.get_flair_count(username, subreddit)
-    new_count = old_count + delta
-    new_flair = FlairManager.set_flair(username, new_count, subreddit)
-
-    activity.logger.info(
-        "u/%s flair incremented: %d -> %d ('%s' -> '%s')",
-        username,
-        old_count,
-        new_count,
-        old_flair,
-        new_flair,
-    )
-
-    return {
-        "username": username,
-        "old_count": old_count,
-        "new_count": new_count,
-        "old_flair": old_flair,
-        "new_flair": new_flair,
-        "success": new_flair is not None,
-    }
