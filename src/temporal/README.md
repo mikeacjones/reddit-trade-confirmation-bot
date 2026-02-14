@@ -22,7 +22,8 @@ src/temporal/
     ├── __init__.py
     ├── comment_processing.py  # CommentPollingWorkflow, ProcessConfirmationWorkflow
     ├── monthly_post.py        # MonthlyPostWorkflow
-    └── lock_submissions.py    # LockSubmissionsWorkflow
+    ├── lock_submissions.py    # LockSubmissionsWorkflow
+    └── user_flair.py          # UserFlairWorkflow (per-user serialized increments)
 ```
 
 ## Prerequisites
@@ -114,7 +115,7 @@ Processes a single comment for trade confirmation.
 1. Validates the comment via `validate_confirmation`
 2. Marks comment as saved
 3. On invalid with reason: replies with error template
-4. On valid: reads current flairs, calculates new values, sets flairs, posts confirmation reply
+4. On valid: requests per-user flair increments via `UserFlairWorkflow`, then posts confirmation reply with old/new flair text
 
 **Returns:** `{status, comment_id, parent_author, confirmer, flair_changes}`
 
@@ -152,6 +153,12 @@ Locks old confirmation threads.
 |----------|-------------|
 | `get_user_flair(username)` | Get user's current flair text and trade count |
 | `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
+
+### Temporal Bridge Activities (`temporal_bridge.py`)
+
+| Activity | Description |
+|----------|-------------|
+| `request_user_flair_increment(username, request)` | Uses update-with-start to route increments through per-user `UserFlairWorkflow` |
 
 ### Submission Activities (`submissions.py`)
 

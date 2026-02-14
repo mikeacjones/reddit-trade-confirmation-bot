@@ -111,7 +111,7 @@ class FlairManager:
 
 
 @activity.defn
-async def get_user_flair(username: str) -> dict:
+def get_user_flair(username: str) -> dict:
     """Get a user's current flair information.
 
     This is a read-only activity that returns the user's current flair text
@@ -137,7 +137,7 @@ async def get_user_flair(username: str) -> dict:
 
 
 @activity.defn
-async def set_user_flair(username: str, new_count: int) -> dict:
+def set_user_flair(username: str, new_count: int) -> dict:
     """Set a user's flair to a specific trade count.
 
     This activity is idempotent - calling it multiple times with the same
@@ -171,3 +171,4 @@ async def set_user_flair(username: str, new_count: int) -> dict:
             success=new_flair is not None,
         )
     )
+
