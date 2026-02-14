@@ -10,7 +10,6 @@ class TemplateManager:
     """Manages loading and caching of message templates."""
 
     _cache: dict = {}
-    _template_dir = Path(__file__).resolve().parents[2] / "mdtemplates"
 
     @classmethod
     def load(cls, template_name: str, subreddit) -> str:
@@ -24,7 +23,10 @@ class TemplateManager:
             content = wiki_page.content_md
             logger.info("Loaded template '%s' from wiki", template_name)
         except (prawcore.exceptions.NotFound, prawcore.exceptions.Forbidden):
-            template_path = cls._template_dir / f"{template_name}.md"
+            # Compute path lazily in activity runtime to keep workflow sandbox
+            # import-time evaluation free of restricted Path.resolve calls.
+            template_dir = Path(__file__).parent.parent / "mdtemplates"
+            template_path = template_dir / f"{template_name}.md"
             with template_path.open("r", encoding="utf-8") as f:
                 content = f.read()
             logger.info("Loaded template '%s' from file: %s", template_name, template_path)
