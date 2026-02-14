@@ -6,7 +6,7 @@ from temporalio import activity
 from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
 
-from ..shared import TASK_QUEUE
+from ..shared import SUBREDDIT_NAME, TASK_QUEUE
 
 _temporal_client: Client | None = None
 
@@ -21,14 +21,13 @@ async def _get_temporal_client() -> Client:
 
 
 @activity.defn
-async def request_user_flair_increment(username: str, request: dict) -> dict:
-    """Apply a serialized flair increment for a user via Update-With-Start."""
+async def request_flair_increment(request: dict) -> dict:
+    """Route increment requests through the centralized coordinator workflow."""
     client = await _get_temporal_client()
 
-    handle = WithStartWorkflowOperation(
-        "UserFlairWorkflow",
-        args=[username],
-        id=f"flair-user-{username.lower()}",
+    start_op = WithStartWorkflowOperation(
+        "FlairCoordinatorWorkflow",
+        id=f"flair-coordinator-{SUBREDDIT_NAME}",
         task_queue=TASK_QUEUE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
     )
@@ -36,5 +35,5 @@ async def request_user_flair_increment(username: str, request: dict) -> dict:
     return await client.execute_update_with_start_workflow(
         "apply_increment",
         request,
-        start_workflow_operation=handle,
+        start_workflow_operation=start_op,
     )

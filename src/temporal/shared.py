@@ -125,15 +125,16 @@ class FlairUpdateResult:
 
 @dataclass
 class FlairIncrementRequest:
-    """Request to increment a user's flair count."""
+    """Request to apply a flair increment for a user."""
 
+    username: str
     request_id: str
     delta: int = 1
 
 
 @dataclass
 class FlairIncrementResult:
-    """Result of processing a flair increment request."""
+    """Result of a coordinated flair increment operation."""
 
     username: str
     applied: bool

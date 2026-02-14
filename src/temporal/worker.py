@@ -37,7 +37,7 @@ from temporal.activities import (
     lock_previous_submissions,
     mark_comment_saved,
     post_confirmation_reply,
-    request_user_flair_increment,
+    request_flair_increment,
     reply_to_comment,
     send_pushover_notification,
     set_user_flair,
@@ -47,10 +47,10 @@ from temporal.activities import (
 from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
+    FlairCoordinatorWorkflow,
     LockSubmissionsWorkflow,
     MonthlyPostWorkflow,
     ProcessConfirmationWorkflow,
-    UserFlairWorkflow,
 )
 
 
@@ -70,15 +70,16 @@ async def main():
         workflows=[
             CommentPollingWorkflow,
             ProcessConfirmationWorkflow,
+            FlairCoordinatorWorkflow,
             MonthlyPostWorkflow,
             LockSubmissionsWorkflow,
-            UserFlairWorkflow,
         ],
         activities=[
             fetch_new_comments,
             validate_confirmation,
             get_user_flair,
             set_user_flair,
+            request_flair_increment,
             mark_comment_saved,
             reply_to_comment,
             post_confirmation_reply,
@@ -86,7 +87,6 @@ async def main():
             unsticky_previous_post,
             lock_previous_submissions,
             send_pushover_notification,
-            request_user_flair_increment,
         ],
         workflow_runner=SandboxedWorkflowRunner(
             restrictions=SandboxRestrictions.default.with_passthrough_modules(

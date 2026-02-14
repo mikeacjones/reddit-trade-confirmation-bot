@@ -182,27 +182,33 @@ class ProcessConfirmationWorkflow:
 
             return {"status": "skipped", "comment_id": comment_id}
 
-        # Valid confirmation - update flairs via per-user serialized workflows
+        # Valid confirmation - request coordinated flair updates
         parent_author = validation["parent_author"]
         confirmer = validation["confirmer"]
         parent_comment_id = validation.get("parent_comment_id")
         confirmation_key = f"{parent_comment_id}:{confirmer}".lower()
 
         parent_increment = workflow.start_activity(
-            bridge_activities.request_user_flair_increment,
+            bridge_activities.request_flair_increment,
             args=[
-                parent_author,
-                {"request_id": f"{confirmation_key}:parent", "delta": 1},
+                {
+                    "username": parent_author,
+                    "request_id": f"{confirmation_key}:parent",
+                    "delta": 1,
+                }
             ],
             start_to_close_timeout=timedelta(seconds=120),
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
         confirmer_increment = workflow.start_activity(
-            bridge_activities.request_user_flair_increment,
+            bridge_activities.request_flair_increment,
             args=[
-                confirmer,
-                {"request_id": f"{confirmation_key}:confirmer", "delta": 1},
+                {
+                    "username": confirmer,
+                    "request_id": f"{confirmation_key}:confirmer",
+                    "delta": 1,
+                }
             ],
             start_to_close_timeout=timedelta(seconds=120),
             retry_policy=REDDIT_RETRY_POLICY,
