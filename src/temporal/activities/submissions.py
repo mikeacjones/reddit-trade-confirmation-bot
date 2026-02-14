@@ -1,6 +1,7 @@
 """Submission-related activities for Temporal bot."""
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from temporalio import activity
 
@@ -62,6 +63,11 @@ def create_monthly_post() -> str:
     except StopIteration:
         previous_submission = None
 
+    template_submission = previous_submission or SimpleNamespace(
+        title="Previous monthly thread",
+        permalink=f"https://www.reddit.com/r/{SUBREDDIT_NAME}/",
+    )
+
     # Load templates
     post_template = TemplateManager.load("monthly_post", subreddit)
     title_template = TemplateManager.load("monthly_post_title", subreddit)
@@ -74,7 +80,8 @@ def create_monthly_post() -> str:
         selftext=post_template.format(
             bot_name=bot_user.name,
             subreddit_name=SUBREDDIT_NAME,
-            previous_month_submission=previous_submission,
+            previous_month_submission=template_submission,
+            submission=template_submission,
             now=now,
         ),
         flair_id=MONTHLY_POST_FLAIR_ID,
