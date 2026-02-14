@@ -102,7 +102,7 @@ Continuously polls for new comments across the subreddit.
 
 - Polls every 30 seconds (configurable)
 - Filters to comments on unlocked bot submissions
-- Spawns `ProcessConfirmationWorkflow` child for each comment
+- Starts independent `ProcessConfirmationWorkflow` executions for each comment
 - Uses comment ID as workflow ID for idempotency
 
 **Signals:** `stop()` - Gracefully stop polling
@@ -168,6 +168,7 @@ Locks old confirmation threads.
 | Activity | Description |
 |----------|-------------|
 | `request_flair_increment(request)` | Update-with-start call into `FlairCoordinatorWorkflow` |
+| `start_confirmation_workflow(workflow_id, comment_data)` | Starts independent `ProcessConfirmationWorkflow` by ID |
 
 ### Submission Activities (`submissions.py`)
 

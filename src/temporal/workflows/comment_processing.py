@@ -4,8 +4,6 @@ from datetime import timedelta
 from typing import Optional
 
 from temporalio import workflow
-from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from ..activities import comments as comment_activities
 from ..activities import temporal_bridge as bridge_activities
@@ -17,7 +15,7 @@ class CommentPollingWorkflow:
     """Continuously polls for new comments and processes them.
 
     This workflow runs indefinitely, periodically checking for new comments
-    in the specified submission and spawning child workflows to process them.
+    in the specified submission and starting independent workflows to process them.
     """
 
     # Continue-as-new after this many iterations to prevent unbounded event history
@@ -71,23 +69,23 @@ class CommentPollingWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            # Process each comment via child workflow
+            # Process each comment via independently-started workflow
             for comment_data in comments:
                 # Use comment ID as workflow ID for idempotency
                 # If we crash and restart, already-processed comments won't be reprocessed
                 workflow_id = f"process-{comment_data['id']}"
 
-                try:
-                    await workflow.execute_child_workflow(
-                        ProcessConfirmationWorkflow.run,
-                        args=[comment_data],
-                        id=workflow_id,
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    )
+                started = await workflow.execute_activity(
+                    bridge_activities.start_confirmation_workflow,
+                    args=[workflow_id, comment_data],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=REDDIT_RETRY_POLICY,
+                )
+                if started:
                     self._processed_count += 1
-                except WorkflowAlreadyStartedError:
+                else:
                     workflow.logger.warning(
-                        "Comment %s already processed (child workflow %s exists), skipping",
+                        "Comment %s already has workflow %s, skipping start",
                         comment_data["id"],
                         workflow_id,
                     )
@@ -153,9 +151,8 @@ class ProcessConfirmationWorkflow:
         )
 
         # Mark confirming comment as saved so it won't be re-fetched.
-        # This is needed because Temporal's default WorkflowIDReusePolicy
-        # (ALLOW_DUPLICATE) permits re-starting completed child workflows,
-        # so the workflow ID alone isn't sufficient dedup.
+        # Workflow ID dedup protects starts, while saved state prevents
+        # reprocessing if comments are fetched again in later polls.
         await workflow.execute_activity(
             comment_activities.mark_comment_saved,
             args=[comment_id],
