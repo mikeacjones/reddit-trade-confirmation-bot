@@ -15,15 +15,16 @@ src/temporal/
 │   ├── reddit.py          # Reddit client utilities (singleton praw instance)
 │   ├── comments.py        # Comment fetching, validation, replies
 │   ├── flair.py           # User flair management
+│   ├── temporal_bridge.py # Temporal client bridge for coordinator updates
 │   ├── submissions.py     # Monthly post creation, locking
 │   ├── notifications.py   # Pushover notifications
 │   └── helpers.py         # Template loading utilities
 └── workflows/
     ├── __init__.py
     ├── comment_processing.py  # CommentPollingWorkflow, ProcessConfirmationWorkflow
+    ├── flair_coordinator.py   # FlairCoordinatorWorkflow
     ├── monthly_post.py        # MonthlyPostWorkflow
-    ├── lock_submissions.py    # LockSubmissionsWorkflow
-    └── user_flair.py          # UserFlairWorkflow (per-user serialized increments)
+    └── lock_submissions.py    # LockSubmissionsWorkflow
 ```
 
 ## Prerequisites
@@ -115,9 +116,17 @@ Processes a single comment for trade confirmation.
 1. Validates the comment via `validate_confirmation`
 2. Marks comment as saved
 3. On invalid with reason: replies with error template
-4. On valid: requests per-user flair increments via `UserFlairWorkflow`, then posts confirmation reply with old/new flair text
+4. On valid: requests flair increments through `FlairCoordinatorWorkflow`, then posts confirmation reply
 
 **Returns:** `{status, comment_id, parent_author, confirmer, flair_changes}`
+
+### FlairCoordinatorWorkflow
+
+Centralized long-running workflow that processes flair increment requests one-at-a-time.
+
+- Deduplicates by request ID
+- Performs `get_user_flair` then deterministic `set_user_flair`
+- Uses continue-as-new to cap event history
 
 ### MonthlyPostWorkflow
 
@@ -158,7 +167,7 @@ Locks old confirmation threads.
 
 | Activity | Description |
 |----------|-------------|
-| `request_user_flair_increment(username, request)` | Uses update-with-start to route increments through per-user `UserFlairWorkflow` |
+| `request_flair_increment(request)` | Update-with-start call into `FlairCoordinatorWorkflow` |
 
 ### Submission Activities (`submissions.py`)
 
