@@ -210,6 +210,7 @@ def validate_confirmation(comment_data: dict) -> dict:
                         parent_author=grandparent_comment.author.name,
                         confirmer=parent_comment.author.name,
                         parent_comment_id=grandparent_comment.id,
+                        reply_to_comment_id=parent_comment.id,
                     )
                 )
         return asdict(ValidationResult(valid=False))
@@ -246,6 +247,7 @@ def validate_confirmation(comment_data: dict) -> dict:
             parent_author=parent_comment.author.name,
             confirmer=comment_data["author_name"],
             parent_comment_id=parent_comment.id,
+            reply_to_comment_id=comment_data["id"],
         )
     )
 

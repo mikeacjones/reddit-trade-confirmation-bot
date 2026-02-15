@@ -111,6 +111,7 @@ class ValidationResult:
     confirmer: Optional[str] = None
     parent_comment_id: Optional[str] = None
     is_mod_approval: bool = False
+    reply_to_comment_id: Optional[str] = None  # Comment to reply to (for mod approvals)
 
 
 @dataclass
