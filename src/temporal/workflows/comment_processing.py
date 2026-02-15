@@ -286,10 +286,12 @@ class ProcessConfirmationWorkflow:
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
 
+            # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
+            reply_comment_id = validation.get("reply_to_comment_id") or comment_id
             await workflow.execute_activity(
                 comment_activities.post_confirmation_reply,
                 args=[
-                    comment_id,
+                    reply_comment_id,
                     parent_author,
                     confirmer,
                     parent_result.get("old_flair"),
