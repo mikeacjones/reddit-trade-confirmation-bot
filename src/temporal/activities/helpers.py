@@ -25,7 +25,7 @@ class TemplateManager:
         except (prawcore.exceptions.NotFound, prawcore.exceptions.Forbidden):
             # Compute path lazily in activity runtime to keep workflow sandbox
             # import-time evaluation free of restricted Path.resolve calls.
-            template_dir = Path(__file__).parent.parent / "mdtemplates"
+            template_dir = Path(__file__).parent.parent.parent / "mdtemplates"
             template_path = template_dir / f"{template_name}.md"
             with template_path.open("r", encoding="utf-8") as f:
                 content = f.read()
@@ -37,7 +37,7 @@ class TemplateManager:
     @classmethod
     def load_local(cls, template_name: str) -> str:
         """Load template directly from the local file system, bypassing wiki and cache."""
-        template_dir = Path(__file__).parent.parent / "mdtemplates"
+        template_dir = Path(__file__).parent.parent.parent / "mdtemplates"
         template_path = template_dir / f"{template_name}.md"
         with template_path.open("r", encoding="utf-8") as f:
             return f.read()
