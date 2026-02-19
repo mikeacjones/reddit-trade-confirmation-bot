@@ -76,23 +76,6 @@ class FlairManager:
         return flair_template[:start] + str(count) + flair_template[end:]
 
     @classmethod
-    def get_flair_count(cls, username: str, subreddit) -> Optional[int]:
-        """Get current trade count from user's flair.
-
-        Returns 0 for empty flair, or None for non-trade custom flair.
-        """
-        flair_text = next(subreddit.flair(username))["flair_text"]
-        if not flair_text:
-            return 0
-        match = FLAIR_PATTERN.search(flair_text)
-        return int(match.group(1)) if match else None
-
-    @classmethod
-    def get_flair_text(cls, username: str, subreddit) -> Optional[str]:
-        """Get current flair text for a user."""
-        return next(subreddit.flair(username))["flair_text"]
-
-    @classmethod
     def set_flair(cls, username: str, count: int, subreddit) -> Optional[str]:
         """Set user's flair to specific trade count."""
         template = cls._get_flair_template(count, username, subreddit)
