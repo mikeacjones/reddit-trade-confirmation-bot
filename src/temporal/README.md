@@ -122,7 +122,7 @@ Processes a single comment for trade confirmation.
 
 ### FlairCoordinatorWorkflow
 
-Centralized long-running workflow that processes flair increment requests one-at-a-time.
+Centralized long-running workflow that serializes flair increment requests per-user.
 
 - Deduplicates by request ID
 - Performs `get_user_flair` then deterministic `set_user_flair`

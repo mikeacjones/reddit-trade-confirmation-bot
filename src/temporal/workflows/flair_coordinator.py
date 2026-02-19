@@ -11,14 +11,14 @@ from ..shared import FlairIncrementRequest, FlairIncrementResult, REDDIT_RETRY_P
 
 @workflow.defn
 class FlairCoordinatorWorkflow:
-    """Serializes flair increments and deduplicates request IDs globally."""
+    """Serializes flair increments per-user and deduplicates request IDs."""
 
     MAX_APPLIED_BEFORE_CONTINUE_AS_NEW = 500
     MAX_DEDUPE_RESULTS = 2000
 
     def __init__(self) -> None:
         self._results_by_request_id: dict[str, dict] = {}
-        self._update_in_progress = False
+        self._users_in_progress: set[str] = set()
         self._applied_count = 0
         self._should_continue_as_new = False
         # Cache of last-set flair counts per user.  Reddit's flair read API
@@ -51,17 +51,20 @@ class FlairCoordinatorWorkflow:
 
     @workflow.update
     async def apply_increment(self, request: dict) -> dict:
-        """Apply one increment request with global one-at-a-time serialization."""
+        """Apply one increment request with per-user serialization."""
         req = FlairIncrementRequest(**request)
 
         cached = self._results_by_request_id.get(req.request_id)
         if cached is not None:
             return cached
 
-        while self._update_in_progress:
-            await workflow.wait_condition(lambda: not self._update_in_progress)
+        username = req.username
+        while username in self._users_in_progress:
+            await workflow.wait_condition(
+                lambda u=username: u not in self._users_in_progress
+            )
 
-        self._update_in_progress = True
+        self._users_in_progress.add(username)
         try:
             cached = self._results_by_request_id.get(req.request_id)
             if cached is not None:
@@ -141,4 +144,4 @@ class FlairCoordinatorWorkflow:
 
             return result
         finally:
-            self._update_in_progress = False
+            self._users_in_progress.discard(username)
