@@ -101,7 +101,6 @@ def create_monthly_post(previous_submission_data: dict | None = None) -> str:
             bot_name=bot_user.name,
             subreddit_name=SUBREDDIT_NAME,
             previous_month_submission=template_submission,
-            submission=template_submission,
             now=now,
         ),
         flair_id=MONTHLY_POST_FLAIR_ID,

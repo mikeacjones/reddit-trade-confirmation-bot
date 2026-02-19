@@ -64,7 +64,7 @@ The bot replies with certain messages based on interactions with Redditors. The 
 | [already_confirmed](src/mdtemplates/already_confirmed.md) | Trade already confirmed | *(comment variables — see below)* |
 | [cant_confirm_username](src/mdtemplates/cant_confirm_username.md) | User not tagged in parent | *(comment variables — see below)* |
 | [monthly_post_title](src/mdtemplates/monthly_post_title.md) | Monthly thread title | strftime codes (e.g. `%B`, `%Y`) |
-| [monthly_post](src/mdtemplates/monthly_post.md) | Monthly thread content | `{bot_name}`, `{subreddit_name}`, `{submission.title}`, `{submission.permalink}`, `{previous_month_submission.title}`, `{previous_month_submission.permalink}`, `{now}` |
+| [monthly_post](src/mdtemplates/monthly_post.md) | Monthly thread content | `{bot_name}`, `{subreddit_name}`, `{previous_month_submission.title}`, `{previous_month_submission.permalink}`, `{now}` |
 | [old_confirmation_thread](src/mdtemplates/old_confirmation_thread.md) | Trade in old thread | *(comment variables — see below)* |
 | [trade_confirmation](src/mdtemplates/trade_confirmation.md) | Successful confirmation | `{confirmer}`, `{parent_author}`, `{old_comment_flair}`, `{new_comment_flair}`, `{old_parent_flair}`, `{new_parent_flair}`, `{comment_id}` |
 

@@ -1,6 +1,6 @@
 Submit your trade confirmations below
 
-* [**{submission.title}**]({submission.permalink})
+* [**{previous_month_submission.title}**]({previous_month_submission.permalink})
 * [**Full List of Subreddit Rules**](https://www.reddit.com/r/{subreddit_name}/wiki/rules/)
 * [**Message the Moderators**](http://www.reddit.com/message/compose?to=%2Fr%2F{subreddit_name})
 

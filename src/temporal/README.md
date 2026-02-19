@@ -266,10 +266,8 @@ Body of the monthly confirmation thread. Uses `str.format()`.
 |----------|-------------|
 | `{bot_name}` | Bot's Reddit username |
 | `{subreddit_name}` | Subreddit name (from `SUBREDDIT_NAME` env var) |
-| `{submission.title}` | Previous month's thread title |
-| `{submission.permalink}` | Previous month's thread permalink |
-| `{previous_month_submission.title}` | Same as `{submission.title}` |
-| `{previous_month_submission.permalink}` | Same as `{submission.permalink}` |
+| `{previous_month_submission.title}` | Previous month's thread title |
+| `{previous_month_submission.permalink}` | Previous month's thread permalink |
 | `{now}` | Current UTC `datetime` object |
 
 ### `monthly_post_title`
