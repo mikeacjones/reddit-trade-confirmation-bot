@@ -2,7 +2,6 @@
 
 from dataclasses import asdict
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Optional
 
 from temporalio import activity
@@ -221,7 +220,14 @@ def validate_confirmation(comment_data: dict) -> dict:
 
     # Check if already confirmed
     if parent_comment.saved:
-        return asdict(ValidationResult(valid=False, reason="already_confirmed"))
+        return asdict(
+            ValidationResult(
+                valid=False,
+                reason="already_confirmed",
+                parent_author=parent_comment.author.name,
+                parent_comment_id=parent_comment.id,
+            )
+        )
 
     # Verify user is mentioned in parent comment
     username_lower = comment_data["author_name"].lower()
@@ -278,7 +284,16 @@ def reply_to_comment(
     template = TemplateManager.load(template_name, subreddit)
 
     if format_args:
-        reply_text = template.format(**format_args)
+        try:
+            reply_text = template.format(**format_args)
+        except (KeyError, ValueError, IndexError) as exc:
+            activity.logger.warning(
+                "Template '%s' formatting failed (%s: %s); falling back to local file",
+                template_name, type(exc).__name__, exc,
+            )
+            local_template = TemplateManager.load_local(template_name)
+            TemplateManager._cache[template_name] = local_template
+            reply_text = local_template.format(**format_args)
     else:
         reply_text = template
 
@@ -309,17 +324,26 @@ def post_confirmation_reply(
     comment = reddit.comment(id=comment_id)
 
     template = TemplateManager.load("trade_confirmation", subreddit)
-    # Use already-validated parent author to avoid fetching parent comment again.
-    parent_comment = SimpleNamespace(author=SimpleNamespace(name=parent_author))
-
-    reply_text = template.format(
-        comment=comment,
-        parent_comment=parent_comment,
-        old_parent_flair=parent_old_flair or "unknown",
-        new_parent_flair=parent_new_flair or "unknown",
-        old_comment_flair=confirmer_old_flair or "unknown",
-        new_comment_flair=confirmer_new_flair or "unknown",
-    )
+    # Build a flat dict of all available data — no PRAW objects or lazy-loadable objects.
+    format_args = {
+        "comment_id": comment_id,
+        "confirmer": confirmer,
+        "parent_author": parent_author,
+        "old_comment_flair": confirmer_old_flair or "unknown",
+        "new_comment_flair": confirmer_new_flair or "unknown",
+        "old_parent_flair": parent_old_flair or "unknown",
+        "new_parent_flair": parent_new_flair or "unknown",
+    }
+    try:
+        reply_text = template.format(**format_args)
+    except (KeyError, ValueError, IndexError) as exc:
+        activity.logger.warning(
+            "Template 'trade_confirmation' formatting failed (%s: %s); falling back to local file",
+            type(exc).__name__, exc,
+        )
+        local_template = TemplateManager.load_local("trade_confirmation")
+        TemplateManager._cache["trade_confirmation"] = local_template
+        reply_text = local_template.format(**format_args)
 
     reply = comment.reply(reply_text)
     if reply is None:

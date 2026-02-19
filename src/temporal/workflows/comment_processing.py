@@ -219,7 +219,11 @@ class ProcessConfirmationWorkflow:
                 if reason:
                     await workflow.execute_activity(
                         comment_activities.reply_to_comment,
-                        args=[comment_id, reason, {"comment": comment_data}],
+                        args=[comment_id, reason, {
+                            **comment_data,
+                            "parent_author": validation.get("parent_author"),
+                            "parent_comment_id": validation.get("parent_comment_id"),
+                        }],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )

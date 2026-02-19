@@ -212,7 +212,73 @@ Templates are loaded from:
 1. Subreddit wiki: `trade-confirmation-bot/{template_name}`
 2. Fallback: `src/mdtemplates/{template_name}.md`
 
-Templates are cached after first load.
+Templates are cached after first load. All templates use Python's `str.format()` syntax (`{variable_name}`). Extra variables passed to the template are silently ignored.
+
+If a wiki template fails to format (e.g. it references a variable name that no longer exists), the bot logs a warning, falls back to the local file for that template, and updates the in-process cache so subsequent calls use the local file without hitting the wiki again. If the local file also fails to format, the error propagates normally.
+
+### `trade_confirmation`
+
+Posted as a reply after a trade is successfully confirmed.
+
+| Variable | Description |
+|----------|-------------|
+| `{confirmer}` | Username of the person who wrote "confirmed" |
+| `{parent_author}` | Username of the person whose comment was confirmed |
+| `{old_comment_flair}` | Confirmer's flair text before the increment |
+| `{new_comment_flair}` | Confirmer's flair text after the increment |
+| `{old_parent_flair}` | Parent author's flair text before the increment |
+| `{new_parent_flair}` | Parent author's flair text after the increment |
+| `{comment_id}` | Reddit ID of the confirming comment |
+
+### `already_confirmed`, `cant_confirm_username`, `old_confirmation_thread`
+
+Posted as error replies. All three receive the full set of data from the triggering comment. Two also include parent comment data that was already fetched during validation — no extra API calls are made.
+
+**Available in all three:**
+
+| Variable | Description |
+|----------|-------------|
+| `{author_name}` | Username of the commenter |
+| `{id}` | Reddit comment ID |
+| `{permalink}` | Comment permalink |
+| `{body}` | Comment body text |
+| `{body_html}` | Comment body as HTML |
+| `{author_flair_text}` | Commenter's current flair text (may be `None`) |
+| `{created_utc}` | Comment creation timestamp (Unix epoch float) |
+| `{is_root}` | `True` if the comment is top-level |
+| `{parent_id}` | Fullname of the parent comment or submission (e.g. `t1_abc123`) |
+| `{submission_id}` | ID of the parent submission |
+| `{saved}` | `True` if the comment has been marked as processed |
+| `{submission_stickied}` | `True` if the parent submission is the current stickied thread |
+
+**Also available in `already_confirmed` and `cant_confirm_username`** (the parent comment is fetched during validation for these cases; `old_confirmation_thread` fires before any parent fetch since the triggering comment is top-level):
+
+| Variable | Description |
+|----------|-------------|
+| `{parent_author}` | Username of the parent comment's author |
+| `{parent_comment_id}` | Reddit ID of the parent comment |
+
+### `monthly_post`
+
+Body of the monthly confirmation thread. Uses `str.format()`.
+
+| Variable | Description |
+|----------|-------------|
+| `{bot_name}` | Bot's Reddit username |
+| `{subreddit_name}` | Subreddit name (from `SUBREDDIT_NAME` env var) |
+| `{previous_month_submission.title}` | Previous month's thread title |
+| `{previous_month_submission.permalink}` | Previous month's thread permalink |
+| `{now}` | Current UTC `datetime` object |
+
+### `monthly_post_title`
+
+Title of the monthly confirmation thread. Uses Python's `strftime()` format codes rather than `str.format()`, so use `%B`, `%Y`, etc.
+
+| Code | Example output |
+|------|----------------|
+| `%B` | `January` |
+| `%Y` | `2025` |
+| `%m` | `01` |
 
 ## Error Handling
 
