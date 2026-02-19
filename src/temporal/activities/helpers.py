@@ -33,3 +33,11 @@ class TemplateManager:
 
         cls._cache[template_name] = content
         return content
+
+    @classmethod
+    def load_local(cls, template_name: str) -> str:
+        """Load template directly from the local file system, bypassing wiki and cache."""
+        template_dir = Path(__file__).parent.parent / "mdtemplates"
+        template_path = template_dir / f"{template_name}.md"
+        with template_path.open("r", encoding="utf-8") as f:
+            return f.read()
