@@ -1,6 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from temporalio import workflow
@@ -334,9 +334,15 @@ class ProcessConfirmationWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
+            comment_created = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
+            elapsed = workflow.now() - comment_created
             workflow.logger.info(
-                f"Confirmed trade: {parent_author} ({parent_result.get('new_flair')}) "
-                f"<-> {confirmer} ({confirmer_result.get('new_flair')})"
+                "Confirmed trade: %s (%s) <-> %s (%s) — %.1fs from comment to reply",
+                parent_author,
+                parent_result.get("new_flair"),
+                confirmer,
+                confirmer_result.get("new_flair"),
+                elapsed.total_seconds(),
             )
 
             return {
