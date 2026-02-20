@@ -54,7 +54,7 @@ class CommentPollingWorkflow:
     """
 
     # Continue-as-new after this many iterations to prevent unbounded event history
-    MAX_ITERATIONS = 50
+    MAX_ITERATIONS = 500
     # Alert when we scan deep into the listing and still cannot find the watermark.
     WATERMARK_GAP_SCAN_THRESHOLD = 900
     # Adaptive polling bounds (seconds)
