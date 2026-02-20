@@ -74,6 +74,7 @@ def fetch_new_comments(
     skipped_count = 0
     scanned_count = 0
     found_seen = not seen_ids_set  # if no prior IDs, nothing to find
+    batch_found_seen = False  # tracks whether current batch of 100 has a seen comment
     listing_exhausted = True
 
     for comment in subreddit.comments(limit=None):
@@ -84,8 +85,12 @@ def fetch_new_comments(
         scanned_ids.append(comment.id)
 
         # Check if this comment is already known — either in our cache or saved.
-        is_seen = comment.id in seen_ids_set or comment.saved
-        if is_seen:
+        if comment.id in seen_ids_set or comment.saved:
+            batch_found_seen = True
+
+        # At page boundaries (every 100 comments), decide whether to keep fetching.
+        # If any comment in the batch was seen, we've caught up — stop after this batch.
+        if scanned_count % 100 == 0 and batch_found_seen:
             found_seen = True
             listing_exhausted = False
             break
@@ -134,6 +139,11 @@ def fetch_new_comments(
         serialized_comment = asdict(serialize_comment(comment))
         serialized_comment["submission_stickied"] = is_stickied
         comments.append(serialized_comment)
+
+    # Handle final partial batch (< 100 comments) where we found a seen comment.
+    if batch_found_seen:
+        found_seen = True
+        listing_exhausted = False
 
     # Build updated seen_ids: merge newly scanned IDs with previous set, keep newest 1000.
     all_ids = scanned_ids + [sid for sid in (seen_ids or []) if sid not in set(scanned_ids)]
