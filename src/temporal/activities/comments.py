@@ -85,7 +85,8 @@ def fetch_new_comments(
         scanned_ids.append(comment.id)
 
         # Check if this comment is already known — either in our cache or saved.
-        if comment.id in seen_ids_set or comment.saved:
+        already_seen = comment.id in seen_ids_set or comment.saved
+        if already_seen:
             batch_found_seen = True
 
         # At page boundaries (every 100 comments), decide whether to keep fetching.
@@ -94,6 +95,9 @@ def fetch_new_comments(
             found_seen = True
             listing_exhausted = False
             break
+
+        if already_seen:
+            continue
 
         # Skip if not on a bot submission
         submission_id = comment.link_id[3:]
