@@ -127,7 +127,7 @@ class FlairCoordinatorWorkflow:
                     applied=True,
                     old_count=current_count,
                     new_count=target_count,
-                    old_flair=current.get("flair_text"),
+                    old_flair=current.get("flair_text") or "Trades: 0",
                     new_flair=set_result.get("new_flair"),
                 )
             )
