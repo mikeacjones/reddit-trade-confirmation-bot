@@ -20,10 +20,14 @@ from .reddit import (
     should_process_redditor,
 )
 
+# Module-level submission cache — invalidated via signal from MonthlyPostWorkflow.
+_bot_submissions: dict | None = None
+
 
 @activity.defn
 def fetch_new_comments(
     last_seen_id: Optional[str] = None,
+    refresh_submissions: bool = False,
 ) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
 
@@ -38,15 +42,21 @@ def fetch_new_comments(
     Filters out comments that clearly don't need workflows.
     Sends heartbeats during processing to signal liveness.
     """
+    global _bot_submissions
+
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
     subreddit = get_subreddit(reddit)
 
     activity.heartbeat("Fetching bot submissions")
 
-    # Cache bot submission info to avoid lazy-loading each comment's submission
-    bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
-    bot_submission_ids = set(bot_submissions.keys())
+    # Use cached submissions unless this is the first call or a refresh was requested.
+    if _bot_submissions is None or refresh_submissions:
+        _bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
+        if refresh_submissions:
+            activity.logger.info("Refreshed bot submissions cache")
+
+    bot_submissions = _bot_submissions
 
     activity.heartbeat("Fetching comments from subreddit")
 
@@ -82,17 +92,15 @@ def fetch_new_comments(
         if comment.saved:
             continue
 
-        # Skip if not on a bot submission (use link_id to avoid lazy loading)
-        # link_id is in format "t3_xxxxx", strip the "t3_" prefix to get submission ID
+        # Skip if not on a bot submission
         submission_id = comment.link_id[3:]
-        if submission_id not in bot_submission_ids:
+        if submission_id not in bot_submissions:
             continue
 
-        # Use cached submission to avoid lazy-loading
-        submission = bot_submissions[submission_id]
+        cached_submission = bot_submissions[submission_id]
 
         # Skip if submission is locked
-        if submission.locked:
+        if cached_submission.locked:
             continue
 
         # Skip removed comments
@@ -105,8 +113,8 @@ def fetch_new_comments(
 
         comment_body_lower = comment.body.lower()
 
-        # Check if this is the current stickied thread (use cached submission)
-        is_stickied = submission.stickied
+        # Check if this is the current stickied thread
+        is_stickied = cached_submission.stickied
 
         # Filter logic to avoid unnecessary child workflows
         if comment.is_root:

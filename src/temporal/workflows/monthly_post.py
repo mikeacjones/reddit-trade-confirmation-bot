@@ -56,6 +56,20 @@ class MonthlyPostWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
+        # Signal the polling workflow to refresh its submissions cache
+        try:
+            polling_handle = workflow.get_external_workflow_handle(
+                f"poll-{SUBREDDIT_NAME}"
+            )
+            await polling_handle.signal("invalidate_submissions")
+            workflow.logger.info("Signalled polling workflow to refresh submissions")
+        except Exception as exc:
+            workflow.logger.warning(
+                "Could not signal polling workflow: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+
         # Notify about success
         await workflow.execute_activity(
             notification_activities.send_pushover_notification,

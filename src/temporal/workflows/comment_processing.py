@@ -47,12 +47,19 @@ class CommentPollingWorkflow:
 
     This workflow runs indefinitely, periodically checking for new comments
     in the specified submission and starting independent workflows to process them.
+
+    Uses adaptive polling inspired by PRAW's stream_generator: starts at 1 second,
+    doubles on each empty response up to 16 seconds, and resets to 1 second when
+    new comments are found.
     """
 
     # Continue-as-new after this many iterations to prevent unbounded event history
-    MAX_ITERATIONS = 50
+    MAX_ITERATIONS = 500
     # Alert when we scan deep into the listing and still cannot find the watermark.
     WATERMARK_GAP_SCAN_THRESHOLD = 900
+    # Adaptive polling bounds (seconds)
+    MIN_POLL_DELAY = 1.0
+    MAX_POLL_DELAY = 16.0
 
     def __init__(self):
         self._should_stop = False
@@ -60,11 +67,18 @@ class CommentPollingWorkflow:
         self._processed_count = 0
         self._iterations = 0
         self._last_gap_alert_for_watermark: Optional[str] = None
+        self._poll_delay: float = self.MIN_POLL_DELAY
+        self._refresh_submissions = False
 
     @workflow.signal
     def stop(self) -> None:
         """Signal to stop the polling loop."""
         self._should_stop = True
+
+    @workflow.signal
+    def invalidate_submissions(self) -> None:
+        """Signal to refresh the bot submissions cache on the next poll."""
+        self._refresh_submissions = True
 
     @workflow.query
     def get_status(self) -> dict:
@@ -73,32 +87,36 @@ class CommentPollingWorkflow:
             "last_seen_id": self._last_seen_id,
             "processed_count": self._processed_count,
             "running": not self._should_stop,
+            "poll_delay": self._poll_delay,
             "last_gap_alert_for_watermark": self._last_gap_alert_for_watermark,
         }
 
     @workflow.run
     async def run(
         self,
-        poll_interval_seconds: int = 30,
         last_seen_id: Optional[str] = None,
+        poll_delay: float = MIN_POLL_DELAY,
     ) -> dict:
         """Run the comment polling loop.
 
         Args:
-            poll_interval_seconds: How often to poll for new comments.
             last_seen_id: Last processed comment ID (carried over from continue-as-new).
+            poll_delay: Current adaptive poll delay (carried over from continue-as-new).
 
         Returns:
             Final status when stopped.
         """
         self._last_seen_id = last_seen_id
+        self._poll_delay = poll_delay
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
             previous_last_seen_id = self._last_seen_id
+            refresh = self._refresh_submissions
+            self._refresh_submissions = False
             poll_result = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
-                args=[self._last_seen_id],
+                args=[self._last_seen_id, refresh],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
@@ -176,8 +194,16 @@ class CommentPollingWorkflow:
                         workflow_id,
                     )
 
+            # Adaptive delay: reset on activity, back off when idle
+            if comments:
+                self._poll_delay = self.MIN_POLL_DELAY
+            else:
+                self._poll_delay = min(
+                    self._poll_delay * 2, self.MAX_POLL_DELAY
+                )
+
             # Wait before next poll (durable timer - survives worker restarts)
-            await workflow.sleep(timedelta(seconds=poll_interval_seconds))
+            await workflow.sleep(timedelta(seconds=self._poll_delay))
 
             self._iterations += 1
             if self._iterations >= self.MAX_ITERATIONS:
@@ -185,7 +211,7 @@ class CommentPollingWorkflow:
                     "Continuing as new after %d iterations", self._iterations
                 )
                 workflow.continue_as_new(
-                    args=[poll_interval_seconds, self._last_seen_id]
+                    args=[self._last_seen_id, self._poll_delay]
                 )
 
         workflow.logger.info("Comment polling stopped")
