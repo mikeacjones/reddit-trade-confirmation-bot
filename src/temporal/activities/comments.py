@@ -24,9 +24,12 @@ from .reddit import (
 _bot_submissions: dict | None = None
 
 
+SEEN_IDS_MAX = 1000
+
+
 @activity.defn
 def fetch_new_comments(
-    last_seen_id: Optional[str] = None,
+    seen_ids: Optional[list[str]] = None,
     refresh_submissions: bool = False,
 ) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
@@ -34,10 +37,14 @@ def fetch_new_comments(
     Returns:
         dict with:
             - comments: list of serialized CommentData dicts to process
-            - newest_seen_id: newest comment ID observed during this poll
-            - watermark_found: whether we reached `last_seen_id` while scanning
-            - listing_exhausted: whether we consumed the listing window
+            - seen_ids: updated list of recently-seen comment IDs (bounded to ~1000)
+            - found_seen: whether we encountered a previously-seen comment
+            - listing_exhausted: whether we consumed the entire listing window
             - scanned_count: number of comments scanned in this poll
+
+    Scan termination: keeps scanning until at least one comment is recognised
+    as "seen" (present in seen_ids OR marked saved on Reddit).  This avoids
+    missing comments whose IDs arrive out of order.
 
     Filters out comments that clearly don't need workflows.
     Sends heartbeats during processing to signal liveness.
@@ -60,37 +67,33 @@ def fetch_new_comments(
 
     activity.heartbeat("Fetching comments from subreddit")
 
+    seen_ids_set: set[str] = set(seen_ids) if seen_ids else set()
+    scanned_ids: list[str] = []  # ordered newest-first as we encounter them
+
     comments = []
     skipped_count = 0
     scanned_count = 0
-    newest_seen_id = last_seen_id
-    newest_seen_value = int(last_seen_id, 36) if last_seen_id else None
-    last_seen_value = int(last_seen_id, 36) if last_seen_id else None
-    watermark_found = last_seen_id is None
+    found_seen = not seen_ids_set  # if no prior IDs, nothing to find
+    batch_found_seen = False  # tracks whether current batch of 100 has a seen comment
     listing_exhausted = True
 
-    # Iterate until we find the watermark comment to avoid missing bursts.
     for comment in subreddit.comments(limit=None):
         scanned_count += 1
         if scanned_count % 50 == 0:
             activity.heartbeat(f"Scanned {scanned_count} comments")
 
-        comment_id_value = int(comment.id, 36)
+        scanned_ids.append(comment.id)
 
-        # Results are newest-first; once we reach watermark, remaining are older.
-        if last_seen_value is not None and comment_id_value <= last_seen_value:
-            watermark_found = True
+        # Check if this comment is already known — either in our cache or saved.
+        if comment.id in seen_ids_set or comment.saved:
+            batch_found_seen = True
+
+        # At page boundaries (every 100 comments), decide whether to keep fetching.
+        # If any comment in the batch was seen, we've caught up — stop after this batch.
+        if scanned_count % 100 == 0 and batch_found_seen:
+            found_seen = True
             listing_exhausted = False
             break
-
-        # Track newest observed comment even when filtered from processing.
-        if newest_seen_value is None or comment_id_value > newest_seen_value:
-            newest_seen_id = comment.id
-            newest_seen_value = comment_id_value
-
-        # Skip already processed
-        if comment.saved:
-            continue
 
         # Skip if not on a bot submission
         submission_id = comment.link_id[3:]
@@ -137,22 +140,34 @@ def fetch_new_comments(
         serialized_comment["submission_stickied"] = is_stickied
         comments.append(serialized_comment)
 
+    # Handle final partial batch (< 100 comments) where we found a seen comment.
+    if batch_found_seen:
+        found_seen = True
+        listing_exhausted = False
+
+    # Build updated seen_ids: merge newly scanned IDs with previous set, keep newest 1000.
+    all_ids = scanned_ids + [sid for sid in (seen_ids or []) if sid not in set(scanned_ids)]
+    # all_ids is roughly newest-first (scanned_ids are newest-first from the listing).
+    # Sort by base-36 value descending to keep the newest, then trim.
+    all_ids.sort(key=lambda x: int(x, 36), reverse=True)
+    updated_seen_ids = all_ids[:SEEN_IDS_MAX]
+
     activity.logger.info(
         (
             "Fetched %d comments for processing, skipped %d from subreddit, "
-            "scanned=%d, newest_seen_id=%s, watermark_found=%s, listing_exhausted=%s"
+            "scanned=%d, found_seen=%s, listing_exhausted=%s, seen_ids_size=%d"
         ),
         len(comments),
         skipped_count,
         scanned_count,
-        newest_seen_id,
-        watermark_found,
+        found_seen,
         listing_exhausted,
+        len(updated_seen_ids),
     )
     return {
         "comments": comments,
-        "newest_seen_id": newest_seen_id,
-        "watermark_found": watermark_found,
+        "seen_ids": updated_seen_ids,
+        "found_seen": found_seen,
         "listing_exhausted": listing_exhausted,
         "scanned_count": scanned_count,
     }

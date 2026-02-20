@@ -59,14 +59,14 @@ class CommentPollingWorkflow:
     WATERMARK_GAP_SCAN_THRESHOLD = 900
     # Adaptive polling bounds (seconds)
     MIN_POLL_DELAY = 1.0
-    MAX_POLL_DELAY = 16.0
+    MAX_POLL_DELAY = 3.0
 
     def __init__(self):
         self._should_stop = False
-        self._last_seen_id: Optional[str] = None
+        self._seen_ids: list[str] = []
         self._processed_count = 0
         self._iterations = 0
-        self._last_gap_alert_for_watermark: Optional[str] = None
+        self._last_gap_alert_seen_ids_len: int = 0
         self._poll_delay: float = self.MIN_POLL_DELAY
         self._refresh_submissions = False
 
@@ -84,92 +84,85 @@ class CommentPollingWorkflow:
     def get_status(self) -> dict:
         """Query the current status of the polling workflow."""
         return {
-            "last_seen_id": self._last_seen_id,
+            "last_seen_id": self._seen_ids[0] if self._seen_ids else None,
             "processed_count": self._processed_count,
             "running": not self._should_stop,
             "poll_delay": self._poll_delay,
-            "last_gap_alert_for_watermark": self._last_gap_alert_for_watermark,
+            "seen_ids_count": len(self._seen_ids),
         }
 
     @workflow.run
     async def run(
         self,
-        last_seen_id: Optional[str] = None,
+        seen_ids: Optional[list[str]] = None,
         poll_delay: float = MIN_POLL_DELAY,
     ) -> dict:
         """Run the comment polling loop.
 
         Args:
-            last_seen_id: Last processed comment ID (carried over from continue-as-new).
+            seen_ids: Recently-seen comment IDs (carried over from continue-as-new).
             poll_delay: Current adaptive poll delay (carried over from continue-as-new).
 
         Returns:
             Final status when stopped.
         """
-        self._last_seen_id = last_seen_id
+        self._seen_ids = seen_ids or []
         self._poll_delay = poll_delay
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
-            previous_last_seen_id = self._last_seen_id
+            had_seen_ids = len(self._seen_ids) > 0
             refresh = self._refresh_submissions
             self._refresh_submissions = False
             poll_result = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
-                args=[self._last_seen_id, refresh],
+                args=[self._seen_ids, refresh],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
             comments = poll_result.get("comments", []) if isinstance(poll_result, dict) else []
-            newest_seen_id = (
-                poll_result.get("newest_seen_id") if isinstance(poll_result, dict) else None
-            )
-            watermark_found = bool(poll_result.get("watermark_found", True)) if isinstance(poll_result, dict) else True
+            found_seen = bool(poll_result.get("found_seen", True)) if isinstance(poll_result, dict) else True
             listing_exhausted = bool(poll_result.get("listing_exhausted", False)) if isinstance(poll_result, dict) else False
             scanned_count = poll_result.get("scanned_count", 0) if isinstance(poll_result, dict) else 0
             if not isinstance(scanned_count, int):
                 scanned_count = 0
+            updated_seen_ids = poll_result.get("seen_ids", []) if isinstance(poll_result, dict) else []
 
-            possible_watermark_gap = (
-                previous_last_seen_id is not None
-                and not watermark_found
+            # Update seen_ids from activity result.
+            if isinstance(updated_seen_ids, list) and updated_seen_ids:
+                self._seen_ids = updated_seen_ids
+
+            possible_gap = (
+                had_seen_ids
+                and not found_seen
                 and listing_exhausted
                 and scanned_count >= self.WATERMARK_GAP_SCAN_THRESHOLD
             )
-            if possible_watermark_gap:
+            if possible_gap:
                 workflow.logger.warning(
-                    "Possible listing gap for r/%s: scanned=%s without finding watermark %s",
+                    "Possible listing gap for r/%s: scanned=%s without finding any seen comment",
                     SUBREDDIT_NAME,
                     scanned_count,
-                    previous_last_seen_id,
                 )
-                if self._last_gap_alert_for_watermark != previous_last_seen_id:
+                # Only alert once per gap (use seen_ids length as a rough dedup key).
+                if self._last_gap_alert_seen_ids_len != len(self._seen_ids):
                     await workflow.execute_activity(
                         notification_activities.send_pushover_notification,
                         args=[
                             (
                                 f"[r/{SUBREDDIT_NAME}] Possible comment listing gap: "
                                 f"scanned {scanned_count} comments without finding "
-                                f"watermark {previous_last_seen_id}. "
+                                "any previously-seen comment. "
                                 "Manual review of recent confirmations recommended."
                             )
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                     )
-                    self._last_gap_alert_for_watermark = previous_last_seen_id
-            elif watermark_found:
-                self._last_gap_alert_for_watermark = None
-
-            if (
-                isinstance(newest_seen_id, str)
-                and (
-                    self._last_seen_id is None
-                    or int(newest_seen_id, 36) > int(self._last_seen_id, 36)
-                )
-            ):
-                self._last_seen_id = newest_seen_id
+                    self._last_gap_alert_seen_ids_len = len(self._seen_ids)
+            elif found_seen:
+                self._last_gap_alert_seen_ids_len = 0
 
             # Process each comment via independently-started workflow
             for comment_data in comments:
@@ -211,7 +204,7 @@ class CommentPollingWorkflow:
                     "Continuing as new after %d iterations", self._iterations
                 )
                 workflow.continue_as_new(
-                    args=[self._last_seen_id, self._poll_delay]
+                    args=[self._seen_ids, self._poll_delay]
                 )
 
         workflow.logger.info("Comment polling stopped")
