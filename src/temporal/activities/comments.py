@@ -21,7 +21,6 @@ from .reddit import (
 )
 
 # Module-level submission cache — invalidated via signal from MonthlyPostWorkflow.
-# Only needed for stickied status; bot-ownership uses comment.link_author instead.
 _bot_submissions: dict | None = None
 
 
@@ -52,7 +51,6 @@ def fetch_new_comments(
     activity.heartbeat("Fetching bot submissions")
 
     # Use cached submissions unless this is the first call or a refresh was requested.
-    # Only needed for stickied status; bot-ownership check uses comment.link_author.
     if _bot_submissions is None or refresh_submissions:
         _bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
         if refresh_submissions:
@@ -94,12 +92,15 @@ def fetch_new_comments(
         if comment.saved:
             continue
 
-        # Skip if not on a bot submission (link_author available without lazy loading)
-        if comment.link_author != bot_user.name:
+        # Skip if not on a bot submission
+        submission_id = comment.link_id[3:]
+        if submission_id not in bot_submissions:
             continue
 
-        # Skip if submission is locked (available on comment from listing)
-        if comment.locked:
+        cached_submission = bot_submissions[submission_id]
+
+        # Skip if submission is locked
+        if cached_submission.locked:
             continue
 
         # Skip removed comments
@@ -112,10 +113,8 @@ def fetch_new_comments(
 
         comment_body_lower = comment.body.lower()
 
-        # Check if this is the current stickied thread (requires cached submission)
-        submission_id = comment.link_id[3:]
-        cached_submission = bot_submissions.get(submission_id)
-        is_stickied = cached_submission.stickied if cached_submission else False
+        # Check if this is the current stickied thread
+        is_stickied = cached_submission.stickied
 
         # Filter logic to avoid unnecessary child workflows
         if comment.is_root:
