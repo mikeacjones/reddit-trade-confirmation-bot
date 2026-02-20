@@ -131,7 +131,6 @@ async def start_polling():
     try:
         await client.start_workflow(
             CommentPollingWorkflow.run,
-            args=[30],  # 30 second poll interval
             id=workflow_id,
             task_queue=TASK_QUEUE,
         )

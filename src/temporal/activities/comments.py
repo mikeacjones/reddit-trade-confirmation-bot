@@ -20,10 +20,15 @@ from .reddit import (
     should_process_redditor,
 )
 
+# Module-level submission cache — invalidated via signal from MonthlyPostWorkflow.
+_bot_submissions: dict | None = None
+_bot_submission_ids: set | None = None
+
 
 @activity.defn
 def fetch_new_comments(
     last_seen_id: Optional[str] = None,
+    refresh_submissions: bool = False,
 ) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
 
@@ -38,15 +43,23 @@ def fetch_new_comments(
     Filters out comments that clearly don't need workflows.
     Sends heartbeats during processing to signal liveness.
     """
+    global _bot_submissions, _bot_submission_ids
+
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
     subreddit = get_subreddit(reddit)
 
     activity.heartbeat("Fetching bot submissions")
 
-    # Cache bot submission info to avoid lazy-loading each comment's submission
-    bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
-    bot_submission_ids = set(bot_submissions.keys())
+    # Use cached submissions unless this is the first call or a refresh was requested.
+    if _bot_submissions is None or refresh_submissions:
+        _bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
+        _bot_submission_ids = set(_bot_submissions.keys())
+        if refresh_submissions:
+            activity.logger.info("Refreshed bot submissions cache")
+
+    bot_submissions = _bot_submissions
+    bot_submission_ids = _bot_submission_ids
 
     activity.heartbeat("Fetching comments from subreddit")
 
