@@ -3,5 +3,6 @@ log.txt
 .terraform*
 testing.py
 __pycache__/
+.pycache
 .venv/
 .python-version
