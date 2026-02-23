@@ -89,60 +89,54 @@ def fetch_new_comments(
         if already_seen:
             batch_found_seen = True
 
-        # At page boundaries (every 100 comments), decide whether to keep fetching.
-        # If any comment in the batch was seen, we've caught up — stop after this batch.
-        if scanned_count % 100 == 0 and batch_found_seen:
+        # At page boundaries (every 100 comments), decide whether to stop after
+        # evaluating the current comment. This avoids dropping the boundary
+        # comment when it is unseen but another comment in the same page was seen.
+        should_stop_after_current = scanned_count % 100 == 0 and batch_found_seen
+
+        if not already_seen:
+            # Skip if not on a bot submission
+            submission_id = comment.link_id[3:]
+            if submission_id in bot_submissions:
+                cached_submission = bot_submissions[submission_id]
+
+                # Process only comments on unlocked submissions with valid authors.
+                if (
+                    not cached_submission.locked
+                    and comment.banned_by is None
+                    and should_process_redditor(comment.author, bot_user)
+                ):
+                    comment_body_lower = comment.body.lower()
+
+                    # Check if this is the current stickied thread
+                    is_stickied = cached_submission.stickied
+
+                    # Filter logic to avoid unnecessary child workflows
+                    if comment.is_root:
+                        # Root comments in stickied (current) thread: skip entirely
+                        # DON'T mark as saved - saved flag on root comments indicates "trade confirmed"
+                        # Root comments in old thread: need processing for "old_confirmation_thread" reply
+                        if not is_stickied:
+                            # Old thread - still needs processing
+                            serialized_comment = asdict(serialize_comment(comment))
+                            serialized_comment["submission_stickied"] = is_stickied
+                            comments.append(serialized_comment)
+                    else:
+                        # Non-root comments: only process if they contain "confirmed" or "approved"
+                        if (
+                            "confirmed" not in comment_body_lower
+                            and "approved" not in comment_body_lower
+                        ):
+                            skipped_count += 1
+                        else:
+                            serialized_comment = asdict(serialize_comment(comment))
+                            serialized_comment["submission_stickied"] = is_stickied
+                            comments.append(serialized_comment)
+
+        if should_stop_after_current:
             found_seen = True
             listing_exhausted = False
             break
-
-        if already_seen:
-            continue
-
-        # Skip if not on a bot submission
-        submission_id = comment.link_id[3:]
-        if submission_id not in bot_submissions:
-            continue
-
-        cached_submission = bot_submissions[submission_id]
-
-        # Skip if submission is locked
-        if cached_submission.locked:
-            continue
-
-        # Skip removed comments
-        if comment.banned_by is not None:
-            continue
-
-        # Skip comments without valid authors (includes bot's own comments)
-        if not should_process_redditor(comment.author, bot_user):
-            continue
-
-        comment_body_lower = comment.body.lower()
-
-        # Check if this is the current stickied thread
-        is_stickied = cached_submission.stickied
-
-        # Filter logic to avoid unnecessary child workflows
-        if comment.is_root:
-            # Root comments in stickied (current) thread: skip entirely
-            # DON'T mark as saved - saved flag on root comments indicates "trade confirmed"
-            # Root comments in old thread: need processing for "old_confirmation_thread" reply
-            if is_stickied:
-                continue  # Skip but don't mark as saved
-            # Old thread - still needs processing
-        else:
-            # Non-root comments: only process if they contain "confirmed" or "approved"
-            if (
-                "confirmed" not in comment_body_lower
-                and "approved" not in comment_body_lower
-            ):
-                skipped_count += 1
-                continue
-
-        serialized_comment = asdict(serialize_comment(comment))
-        serialized_comment["submission_stickied"] = is_stickied
-        comments.append(serialized_comment)
 
     # Handle final partial batch (< 100 comments) where we found a seen comment.
     if batch_found_seen:
