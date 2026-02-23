@@ -51,7 +51,7 @@ NON_RETRYABLE_ERRORS = [
 # - Does NOT retry programming errors to prevent infinite loops
 REDDIT_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=30),
+    maximum_interval=timedelta(seconds=600),
     backoff_coefficient=2.0,
     non_retryable_error_types=NON_RETRYABLE_ERRORS,
 )
