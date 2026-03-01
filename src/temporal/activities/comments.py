@@ -113,14 +113,10 @@ def fetch_new_comments(
 
                     # Filter logic to avoid unnecessary child workflows
                     if comment.is_root:
-                        # Root comments in stickied (current) thread: skip entirely
-                        # DON'T mark as saved - saved flag on root comments indicates "trade confirmed"
-                        # Root comments in old thread: need processing for "old_confirmation_thread" reply
-                        if not is_stickied:
-                            # Old thread - still needs processing
-                            serialized_comment = asdict(serialize_comment(comment))
-                            serialized_comment["submission_stickied"] = is_stickied
-                            comments.append(serialized_comment)
+                        # Root comments are never confirmations — skip entirely.
+                        # Never mark as saved: the saved flag on root comments
+                        # is reserved to indicate "trade confirmed".
+                        pass
                     else:
                         # Non-root comments: only process if they contain "confirmed" or "approved"
                         if (
@@ -180,21 +176,8 @@ def validate_confirmation(comment_data: dict) -> dict:
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
 
-    # Top-level comments can't be confirmations
+    # Root comments are filtered out by polling and should never reach here.
     if comment_data["is_root"]:
-        # Polling includes cached stickied state; fall back to direct fetch if absent.
-        submission_stickied = comment_data.get("submission_stickied")
-        if submission_stickied is None:
-            submission = reddit.submission(id=comment_data["submission_id"])
-            submission_stickied = submission.stickied
-
-        if submission_stickied is False:
-            comment_date = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
-            now = datetime.now(timezone.utc)
-            is_current_month = comment_date.year == now.year and comment_date.month == now.month
-            if not is_current_month:
-                return asdict(ValidationResult(valid=False, reason="old_confirmation_thread"))
-
         return asdict(ValidationResult(valid=False))
 
     comment = reddit.comment(id=comment_data["id"])
