@@ -53,6 +53,7 @@ src/temporal/
 
    # Optional
    export TEMPORAL_HOST=localhost:7233
+   export TEMPORAL_SDK_METRICS_BIND_ADDRESS=0.0.0.0:9000
    export MONTHLY_POST_FLAIR_ID=xxx
    export PUSHOVER_APP_TOKEN=xxx
    export PUSHOVER_USER_TOKEN=xxx
@@ -296,3 +297,9 @@ The Temporal Web UI (http://localhost:8233) provides:
 - Activity inputs/outputs
 - Error messages and stack traces
 - Schedule status and history
+
+When `TEMPORAL_SDK_METRICS_BIND_ADDRESS` is set, the worker also exports
+Temporal SDK metrics for Prometheus/Grafana.
+
+See [`../../docs/observability/grafana.md`](../../docs/observability/grafana.md)
+for dashboard import links, scrape config, and useful PromQL panels.

@@ -1,0 +1,185 @@
+{
+  "id": null,
+  "uid": "reddit-bot-response",
+  "title": "Reddit Trade Bot Response Time (YarnSwap + pen_swap)",
+  "tags": [
+    "reddit",
+    "trade-confirmation",
+    "loki"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 27,
+  "version": 0,
+  "editable": true,
+  "refresh": "5m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "graph",
+      "title": "Running Avg Response Time (confirmation comment -> bot reply)",
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
+          "legendFormat": "YarnSwap (1h avg)"
+        },
+        {
+          "refId": "B",
+          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
+          "legendFormat": "pen_swap (1h avg)"
+        }
+      ],
+      "lines": true,
+      "linewidth": 2,
+      "fill": 1,
+      "pointradius": 2,
+      "nullPointMode": "null",
+      "renderer": "flot",
+      "yaxes": [
+        {
+          "format": "s",
+          "label": "seconds",
+          "logBase": 1,
+          "min": "0"
+        },
+        {
+          "format": "short",
+          "logBase": 1
+        }
+      ],
+      "xaxis": {
+        "show": true
+      },
+      "legend": {
+        "show": true
+      }
+    },
+    {
+      "id": 2,
+      "type": "graph",
+      "title": "Confirmed Trades Per Hour",
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" [1h]))",
+          "legendFormat": "YarnSwap"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" [1h]))",
+          "legendFormat": "pen_swap"
+        }
+      ],
+      "lines": true,
+      "linewidth": 2,
+      "fill": 1,
+      "pointradius": 2,
+      "nullPointMode": "null",
+      "renderer": "flot",
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "confirmations/hour",
+          "logBase": 1,
+          "min": "0"
+        },
+        {
+          "format": "short",
+          "logBase": 1
+        }
+      ],
+      "xaxis": {
+        "show": true
+      },
+      "legend": {
+        "show": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "graph",
+      "title": "Response Time P95 (rolling 24h)",
+      "datasource": "Loki",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
+          "legendFormat": "YarnSwap p95"
+        },
+        {
+          "refId": "B",
+          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
+          "legendFormat": "pen_swap p95"
+        }
+      ],
+      "lines": true,
+      "linewidth": 2,
+      "fill": 1,
+      "pointradius": 2,
+      "nullPointMode": "null",
+      "renderer": "flot",
+      "yaxes": [
+        {
+          "format": "s",
+          "label": "seconds",
+          "logBase": 1,
+          "min": "0"
+        },
+        {
+          "format": "short",
+          "logBase": 1
+        }
+      ],
+      "xaxis": {
+        "show": true
+      },
+      "legend": {
+        "show": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "text",
+      "title": "How to Read This",
+      "datasource": null,
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "mode": "markdown",
+      "content": "- **Running Avg Response Time**: the rolling 1-hour average from user confirmation comment to bot reply.\n- **Confirmed Trades Per Hour**: how many successful confirmations each bot processed per hour.\n- **P95 (24h)**: worst-case trend; 95% of confirmations are faster than this value over a rolling day.\n\nIf a line is empty, that bot had no matching confirmations in the selected time range."
+    }
+  ]
+}

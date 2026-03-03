@@ -103,7 +103,7 @@ async def setup_schedules():
                 spec=ScheduleSpec(
                     calendars=[
                         ScheduleCalendarSpec(
-                            day_of_month=[ScheduleRange(start=5)],
+                            day_of_month=[ScheduleRange(start=2)],
                             hour=[ScheduleRange(start=0)],
                             minute=[ScheduleRange(start=0)],
                         )
@@ -115,7 +115,9 @@ async def setup_schedules():
             f"Created schedule: lock-submissions-schedule-{SUBREDDIT_NAME} (5th of month at 00:00 UTC)"
         )
     except ScheduleAlreadyRunningError:
-        logger.info(f"Schedule lock-submissions-schedule-{SUBREDDIT_NAME} already exists")
+        logger.info(
+            f"Schedule lock-submissions-schedule-{SUBREDDIT_NAME} already exists"
+        )
 
     logger.info("Schedules setup complete")
 

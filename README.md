@@ -28,6 +28,7 @@ export REDDIT_USER_AGENT="trade confirmation bot v1.0"
 
 # Optional
 export TEMPORAL_HOST=localhost:7233
+export TEMPORAL_SDK_METRICS_BIND_ADDRESS=0.0.0.0:9000
 export MONTHLY_POST_FLAIR_ID=xxx
 export PUSHOVER_APP_TOKEN=xxx
 export PUSHOVER_USER_TOKEN=xxx
@@ -54,6 +55,14 @@ python -m temporal.starter start-polling
 ```
 
 See [src/temporal/README.md](src/temporal/README.md) for detailed documentation.
+
+## Observability
+
+This bot can expose Temporal Python SDK Prometheus metrics when
+`TEMPORAL_SDK_METRICS_BIND_ADDRESS` is set (example: `0.0.0.0:9000`).
+
+For Prometheus scrape config, dashboard imports, and bot-focused PromQL panels, see
+[docs/observability/grafana.md](docs/observability/grafana.md).
 
 ## Customizing Messages
 
