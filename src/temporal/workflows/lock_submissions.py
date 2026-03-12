@@ -14,7 +14,7 @@ from ..shared import SUBREDDIT_NAME
 class LockSubmissionsWorkflow:
     """Locks submissions from previous months.
 
-    This workflow is scheduled to run on the 5th of each month.
+    This workflow is scheduled to run on the 2nd of each month.
     It locks all non-stickied submissions to prevent new comments
     on old confirmation threads.
     """
@@ -27,7 +27,7 @@ class LockSubmissionsWorkflow:
             Result with status and count of locked submissions.
         """
         workflow.logger.info(
-            f"Starting lock submissions workflow for r/{SUBREDDIT_NAME}"
+            "Starting lock submissions workflow for r/%s", SUBREDDIT_NAME
         )
 
         # Send notification
@@ -44,7 +44,7 @@ class LockSubmissionsWorkflow:
             retry_policy=REDDIT_RETRY_POLICY,
         )
 
-        workflow.logger.info(f"Locked {locked_count} submissions")
+        workflow.logger.info("Locked %d submissions", locked_count)
 
         return {
             "status": "completed",

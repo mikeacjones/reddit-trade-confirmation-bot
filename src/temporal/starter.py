@@ -90,7 +90,7 @@ async def setup_schedules():
     except ScheduleAlreadyRunningError:
         logger.info(f"Schedule monthly-post-schedule-{SUBREDDIT_NAME} already exists")
 
-    # Lock submissions schedule - 5th of each month at 00:00 UTC
+    # Lock submissions schedule - 2nd of each month at 00:00 UTC
     try:
         await client.create_schedule(
             f"lock-submissions-schedule-{SUBREDDIT_NAME}",
@@ -112,7 +112,7 @@ async def setup_schedules():
             ),
         )
         logger.info(
-            f"Created schedule: lock-submissions-schedule-{SUBREDDIT_NAME} (5th of month at 00:00 UTC)"
+            f"Created schedule: lock-submissions-schedule-{SUBREDDIT_NAME} (2nd of month at 00:00 UTC)"
         )
     except ScheduleAlreadyRunningError:
         logger.info(

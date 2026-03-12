@@ -1,7 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from temporalio import workflow
 
@@ -30,12 +29,7 @@ def _is_control_flow_stop_exception(exc: Exception) -> bool:
     """Return True for cancellation/termination-style exceptions."""
     for err in _iter_exception_chain(exc):
         err_type = type(err).__name__.lower()
-        if (
-            "cancel" in err_type
-            or "cancellation" in err_type
-            or "terminate" in err_type
-            or "terminated" in err_type
-        ):
+        if "cancel" in err_type or "terminate" in err_type:
             return True
 
     return False
@@ -94,7 +88,7 @@ class CommentPollingWorkflow:
     @workflow.run
     async def run(
         self,
-        seen_ids: Optional[list[str]] = None,
+        seen_ids: list[str] | None = None,
         poll_delay: float = MIN_POLL_DELAY,
     ) -> dict:
         """Run the comment polling loop.
@@ -221,7 +215,7 @@ class ProcessConfirmationWorkflow:
         comment_id = comment_data["id"]
         author = comment_data["author_name"]
 
-        workflow.logger.info(f"Processing comment {comment_id} by {author}")
+        workflow.logger.info("Processing comment %s by %s", comment_id, author)
 
         try:
             # Validate the confirmation

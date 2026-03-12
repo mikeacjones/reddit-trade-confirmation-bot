@@ -8,7 +8,6 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
 
 from dotenv import load_dotenv
 from temporalio.common import RetryPolicy
@@ -92,7 +91,7 @@ class CommentData:
     body: str
     body_html: str
     author_name: str
-    author_flair_text: Optional[str]
+    author_flair_text: str | None
     permalink: str
     created_utc: float
     is_root: bool
@@ -106,12 +105,12 @@ class ValidationResult:
     """Result of validating a confirmation comment."""
 
     valid: bool
-    reason: Optional[str] = None  # Template name to use for error reply
-    parent_author: Optional[str] = None
-    confirmer: Optional[str] = None
-    parent_comment_id: Optional[str] = None
+    reason: str | None = None  # Template name to use for error reply
+    parent_author: str | None = None
+    confirmer: str | None = None
+    parent_comment_id: str | None = None
     is_mod_approval: bool = False
-    reply_to_comment_id: Optional[str] = None  # Comment to reply to (for mod approvals)
+    reply_to_comment_id: str | None = None  # Comment to reply to (for mod approvals)
 
 
 @dataclass
@@ -119,8 +118,8 @@ class FlairUpdateResult:
     """Result of updating a user's flair."""
 
     username: str
-    old_flair: Optional[str]
-    new_flair: Optional[str]
+    old_flair: str | None
+    new_flair: str | None
     success: bool
 
 
@@ -139,10 +138,10 @@ class FlairIncrementResult:
 
     username: str
     applied: bool
-    old_count: Optional[int]
-    new_count: Optional[int]
-    old_flair: Optional[str]
-    new_flair: Optional[str]
+    old_count: int | None
+    new_count: int | None
+    old_flair: str | None
+    new_flair: str | None
 
 
 # ============================================================================

@@ -32,7 +32,7 @@ class MonthlyPostWorkflow:
         Returns:
             Result with status and submission_id.
         """
-        workflow.logger.info(f"Starting monthly post workflow for r/{SUBREDDIT_NAME}")
+        workflow.logger.info("Starting monthly post workflow for r/%s", SUBREDDIT_NAME)
 
         # Send notification that we're creating the post
         await workflow.execute_activity(
@@ -77,7 +77,7 @@ class MonthlyPostWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        workflow.logger.info(f"Monthly post: {submission_id}")
+        workflow.logger.info("Monthly post: %s", submission_id)
 
         return {
             "status": "created",

@@ -1,7 +1,6 @@
 """Flair management activities for Temporal bot."""
 
 from dataclasses import asdict
-from typing import Optional
 
 from temporalio import activity
 
@@ -16,8 +15,8 @@ from .reddit import get_reddit_client, get_subreddit
 class FlairManager:
     """Manages user flair operations."""
 
-    _templates: Optional[dict] = None
-    _moderators: Optional[list] = None
+    _templates: dict | None = None
+    _moderators: list | None = None
 
     @classmethod
     def _load_flair_templates(cls, subreddit) -> dict:
@@ -55,7 +54,7 @@ class FlairManager:
     @classmethod
     def _get_flair_template(
         cls, trade_count: int, username: str, subreddit
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Get appropriate flair template for trade count."""
         templates = cls._load_flair_templates(subreddit)
         moderators = cls._load_moderators(subreddit)
@@ -76,7 +75,7 @@ class FlairManager:
         return flair_template[:start] + str(count) + flair_template[end:]
 
     @classmethod
-    def set_flair(cls, username: str, count: int, subreddit) -> Optional[str]:
+    def set_flair(cls, username: str, count: int, subreddit) -> str | None:
         """Set user's flair to specific trade count."""
         template = cls._get_flair_template(count, username, subreddit)
         if not template:
@@ -110,7 +109,7 @@ def get_user_flair(username: str) -> dict:
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count: Optional[int] = 0
+    trade_count: int | None = 0
     if flair_text:
         match = FLAIR_PATTERN.search(flair_text)
         trade_count = int(match.group(1)) if match else None
@@ -127,7 +126,7 @@ def get_user_flair(username: str) -> dict:
 def set_user_flair(
     username: str,
     new_count: int,
-    old_flair: Optional[str] = None,
+    old_flair: str | None = None,
 ) -> dict:
     """Set a user's flair to a specific trade count.
 

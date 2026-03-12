@@ -1,1 +1,0 @@
-Additional information is required in order to confirm this trade. Please message the moderators in order to confirm this trade.
