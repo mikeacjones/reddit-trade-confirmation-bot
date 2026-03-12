@@ -122,16 +122,14 @@ class CommentPollingWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            comments = poll_result.get("comments", []) if isinstance(poll_result, dict) else []
-            found_seen = bool(poll_result.get("found_seen", True)) if isinstance(poll_result, dict) else True
-            listing_exhausted = bool(poll_result.get("listing_exhausted", False)) if isinstance(poll_result, dict) else False
-            scanned_count = poll_result.get("scanned_count", 0) if isinstance(poll_result, dict) else 0
-            if not isinstance(scanned_count, int):
-                scanned_count = 0
-            updated_seen_ids = poll_result.get("seen_ids", []) if isinstance(poll_result, dict) else []
+            comments = poll_result.get("comments", [])
+            found_seen = poll_result.get("found_seen", True)
+            listing_exhausted = poll_result.get("listing_exhausted", False)
+            scanned_count = poll_result.get("scanned_count", 0)
+            updated_seen_ids = poll_result.get("seen_ids", [])
 
             # Update seen_ids from activity result.
-            if isinstance(updated_seen_ids, list) and updated_seen_ids:
+            if updated_seen_ids:
                 self._seen_ids = updated_seen_ids
 
             possible_gap = (
@@ -215,6 +213,16 @@ class CommentPollingWorkflow:
 class ProcessConfirmationWorkflow:
     """Process a single comment for potential trade confirmation."""
 
+    @staticmethod
+    async def _save(comment_id: str) -> None:
+        """Mark a comment as saved/processed."""
+        await workflow.execute_activity(
+            comment_activities.mark_comment_saved,
+            args=[comment_id],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
+
     @workflow.run
     async def run(self, comment_data: dict) -> dict:
         """Process a potential trade confirmation comment."""
@@ -246,24 +254,14 @@ class ProcessConfirmationWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
-                    await workflow.execute_activity(
-                        comment_activities.mark_comment_saved,
-                        args=[comment_id],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=REDDIT_RETRY_POLICY,
-                    )
+                    await self._save(comment_id)
                     return {
                         "status": "rejected",
                         "reason": reason,
                         "comment_id": comment_id,
                     }
 
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(comment_id)
                 return {"status": "skipped", "comment_id": comment_id}
 
             # Valid confirmation - request coordinated flair updates
@@ -302,12 +300,7 @@ class ProcessConfirmationWorkflow:
             confirmer_result = await confirmer_increment
 
             if parent_comment_id:
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[parent_comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(parent_comment_id)
 
             # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
             reply_comment_id = validation.get("reply_to_comment_id") or comment_id
@@ -327,12 +320,7 @@ class ProcessConfirmationWorkflow:
             )
 
             # Save confirming comment only after successful confirmation flow.
-            await workflow.execute_activity(
-                comment_activities.mark_comment_saved,
-                args=[comment_id],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
+            await self._save(comment_id)
 
             comment_created = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
             elapsed = workflow.now() - comment_created
@@ -393,12 +381,7 @@ class ProcessConfirmationWorkflow:
                 )
 
             try:
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(comment_id)
             except Exception as save_exc:
                 workflow.logger.warning(
                     "Failed to save manual-review comment %s: %s: %s",
