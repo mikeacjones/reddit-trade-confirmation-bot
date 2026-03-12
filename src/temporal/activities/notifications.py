@@ -1,11 +1,10 @@
 """Notification activities for Temporal bot."""
 
 import http.client
+import os
 import urllib.parse
 
 from temporalio import activity
-
-from ..shared import SECRETS
 
 
 @activity.defn
@@ -16,7 +15,9 @@ def send_pushover_notification(message: str) -> bool:
     Skips silently if Pushover is not configured.
     Raises exception on failure so Temporal can retry.
     """
-    if not SECRETS.get("PUSHOVER_APP_TOKEN") or not SECRETS.get("PUSHOVER_USER_TOKEN"):
+    app_token = os.getenv("PUSHOVER_APP_TOKEN", "")
+    user_token = os.getenv("PUSHOVER_USER_TOKEN", "")
+    if not app_token or not user_token:
         activity.logger.debug("Pushover not configured, skipping notification")
         return True
 
@@ -27,8 +28,8 @@ def send_pushover_notification(message: str) -> bool:
             "/1/messages.json",
             urllib.parse.urlencode(
                 {
-                    "token": SECRETS["PUSHOVER_APP_TOKEN"],
-                    "user": SECRETS["PUSHOVER_USER_TOKEN"],
+                    "token": app_token,
+                    "user": user_token,
                     "message": message,
                 }
             ),

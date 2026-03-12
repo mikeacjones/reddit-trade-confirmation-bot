@@ -10,7 +10,7 @@ from ..shared import (
     ValidationResult,
     is_confirming_trade,
 )
-from .flair import FlairManager
+from .flair import is_moderator
 from .helpers import TemplateManager
 from .reddit import (
     get_bot_user,
@@ -201,7 +201,7 @@ def validate_confirmation(comment_data: dict) -> dict:
 
     # Handle moderator approval (for replies to confirmations)
     if not parent_comment.is_root:
-        if "approved" in comment_body and FlairManager.is_moderator(
+        if "approved" in comment_body and is_moderator(
             comment_data["author_name"], subreddit
         ):
             grandparent_comment = parent_comment.parent()
