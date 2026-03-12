@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
+from typing import NotRequired, TypedDict
 
 from dotenv import load_dotenv
 from temporalio.common import RetryPolicy
@@ -84,15 +84,14 @@ SECRETS = {
 # ============================================================================
 
 
-@dataclass
-class CommentData:
+class CommentData(TypedDict):
     """Serializable comment data for passing between activities."""
 
     id: str
     body: str
     body_html: str
     author_name: str
-    author_flair_text: Optional[str]
+    author_flair_text: str | None
     permalink: str
     created_utc: float
     is_root: bool
@@ -101,26 +100,24 @@ class CommentData:
     saved: bool
 
 
-@dataclass
-class ValidationResult:
+class ValidationResult(TypedDict):
     """Result of validating a confirmation comment."""
 
     valid: bool
-    reason: Optional[str] = None  # Template name to use for error reply
-    parent_author: Optional[str] = None
-    confirmer: Optional[str] = None
-    parent_comment_id: Optional[str] = None
-    is_mod_approval: bool = False
-    reply_to_comment_id: Optional[str] = None  # Comment to reply to (for mod approvals)
+    reason: NotRequired[str | None]
+    parent_author: NotRequired[str | None]
+    confirmer: NotRequired[str | None]
+    parent_comment_id: NotRequired[str | None]
+    is_mod_approval: NotRequired[bool]
+    reply_to_comment_id: NotRequired[str | None]
 
 
-@dataclass
-class FlairUpdateResult:
+class FlairUpdateResult(TypedDict):
     """Result of updating a user's flair."""
 
     username: str
-    old_flair: Optional[str]
-    new_flair: Optional[str]
+    old_flair: str | None
+    new_flair: str | None
     success: bool
 
 
@@ -133,16 +130,15 @@ class FlairIncrementRequest:
     delta: int = 1
 
 
-@dataclass
-class FlairIncrementResult:
+class FlairIncrementResult(TypedDict):
     """Result of a coordinated flair increment operation."""
 
     username: str
     applied: bool
-    old_count: Optional[int]
-    new_count: Optional[int]
-    old_flair: Optional[str]
-    new_flair: Optional[str]
+    old_count: int | None
+    new_count: int | None
+    old_flair: str | None
+    new_flair: str | None
 
 
 # ============================================================================

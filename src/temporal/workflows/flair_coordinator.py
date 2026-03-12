@@ -1,6 +1,5 @@
 """Centralized workflow to coordinate flair increments."""
 
-from dataclasses import asdict
 from datetime import timedelta
 
 from temporalio import workflow
@@ -82,15 +81,13 @@ class FlairCoordinatorWorkflow:
 
             # Preserve non-trade custom flairs rather than coercing them to 0.
             if not is_trade_tracked or not isinstance(api_count, int):
-                result = asdict(
-                    FlairIncrementResult(
-                        username=req.username,
-                        applied=False,
-                        old_count=api_count if isinstance(api_count, int) else None,
-                        new_count=api_count if isinstance(api_count, int) else None,
-                        old_flair=current.get("flair_text"),
-                        new_flair=current.get("flair_text"),
-                    )
+                result = FlairIncrementResult(
+                    username=req.username,
+                    applied=False,
+                    old_count=api_count if isinstance(api_count, int) else None,
+                    new_count=api_count if isinstance(api_count, int) else None,
+                    old_flair=current.get("flair_text"),
+                    new_flair=current.get("flair_text"),
                 )
                 self._results_by_request_id[req.request_id] = result
                 self._applied_count += 1
@@ -121,15 +118,13 @@ class FlairCoordinatorWorkflow:
 
             self._last_known_count[req.username] = target_count
 
-            result = asdict(
-                FlairIncrementResult(
-                    username=req.username,
-                    applied=True,
-                    old_count=current_count,
-                    new_count=target_count,
-                    old_flair=current.get("flair_text") or "Trades: 0",
-                    new_flair=set_result.get("new_flair"),
-                )
+            result = FlairIncrementResult(
+                username=req.username,
+                applied=True,
+                old_count=current_count,
+                new_count=target_count,
+                old_flair=current.get("flair_text") or "Trades: 0",
+                new_flair=set_result.get("new_flair"),
             )
 
             self._results_by_request_id[req.request_id] = result
