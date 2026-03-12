@@ -1,6 +1,5 @@
 """Comment-related activities for Temporal bot."""
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -125,7 +124,7 @@ def fetch_new_comments(
                         ):
                             skipped_count += 1
                         else:
-                            serialized_comment = asdict(serialize_comment(comment))
+                            serialized_comment = serialize_comment(comment)
                             serialized_comment["submission_stickied"] = is_stickied
                             comments.append(serialized_comment)
 
@@ -178,7 +177,7 @@ def validate_confirmation(comment_data: dict) -> dict:
 
     # Root comments are filtered out by polling and should never reach here.
     if comment_data["is_root"]:
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     comment = reddit.comment(id=comment_data["id"])
     subreddit = get_subreddit(reddit)
@@ -188,14 +187,14 @@ def validate_confirmation(comment_data: dict) -> dict:
 
     # Validate parent
     if parent_comment is None or parent_comment.banned_by is not None:
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     if not should_process_redditor(parent_comment.author, bot_user):
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     # Can't confirm your own trade
     if parent_comment.author.name == comment_data["author_name"]:
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     comment_body = comment_data["body"].lower()
 
@@ -206,31 +205,27 @@ def validate_confirmation(comment_data: dict) -> dict:
         ):
             grandparent_comment = parent_comment.parent()
             if grandparent_comment and grandparent_comment.is_root:
-                return asdict(
-                    ValidationResult(
-                        valid=True,
-                        is_mod_approval=True,
-                        parent_author=grandparent_comment.author.name,
-                        confirmer=parent_comment.author.name,
-                        parent_comment_id=grandparent_comment.id,
-                        reply_to_comment_id=parent_comment.id,
-                    )
+                return ValidationResult(
+                    valid=True,
+                    is_mod_approval=True,
+                    parent_author=grandparent_comment.author.name,
+                    confirmer=parent_comment.author.name,
+                    parent_comment_id=grandparent_comment.id,
+                    reply_to_comment_id=parent_comment.id,
                 )
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     # Check if this is a confirmation
     if not is_confirming_trade(comment_body):
-        return asdict(ValidationResult(valid=False))
+        return ValidationResult(valid=False)
 
     # Check if already confirmed
     if parent_comment.saved:
-        return asdict(
-            ValidationResult(
-                valid=False,
-                reason="already_confirmed",
-                parent_author=parent_comment.author.name,
-                parent_comment_id=parent_comment.id,
-            )
+        return ValidationResult(
+            valid=False,
+            reason="already_confirmed",
+            parent_author=parent_comment.author.name,
+            parent_comment_id=parent_comment.id,
         )
 
     # Verify user is mentioned in parent comment
@@ -242,23 +237,19 @@ def validate_confirmation(comment_data: dict) -> dict:
         username_lower not in parent_body_lower
         and username_lower not in parent_html_lower
     ):
-        return asdict(
-            ValidationResult(
-                valid=False,
-                reason="cant_confirm_username",
-                parent_author=parent_comment.author.name,
-            )
+        return ValidationResult(
+            valid=False,
+            reason="cant_confirm_username",
+            parent_author=parent_comment.author.name,
         )
 
     # All checks passed
-    return asdict(
-        ValidationResult(
-            valid=True,
-            parent_author=parent_comment.author.name,
-            confirmer=comment_data["author_name"],
-            parent_comment_id=parent_comment.id,
-            reply_to_comment_id=comment_data["id"],
-        )
+    return ValidationResult(
+        valid=True,
+        parent_author=parent_comment.author.name,
+        confirmer=comment_data["author_name"],
+        parent_comment_id=parent_comment.id,
+        reply_to_comment_id=comment_data["id"],
     )
 
 

@@ -1,6 +1,5 @@
 """Flair management activities for Temporal bot."""
 
-from dataclasses import asdict
 from typing import Optional
 
 from temporalio import activity
@@ -148,11 +147,9 @@ def set_user_flair(
     new_flair = apply_flair(username, new_count, subreddit)
     activity.logger.info("u/%s flair set: '%s' -> '%s'", username, old_flair, new_flair)
 
-    return asdict(
-        FlairUpdateResult(
-            username=username,
-            old_flair=old_flair,
-            new_flair=new_flair,
-            success=new_flair is not None,
-        )
+    return FlairUpdateResult(
+        username=username,
+        old_flair=old_flair,
+        new_flair=new_flair,
+        success=new_flair is not None,
     )
