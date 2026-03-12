@@ -1,7 +1,6 @@
 """Comment-related activities for Temporal bot."""
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from temporalio import activity
 
@@ -28,7 +27,7 @@ SEEN_IDS_MAX = 1000
 
 @activity.defn
 def fetch_new_comments(
-    seen_ids: Optional[list[str]] = None,
+    seen_ids: list[str] | None = None,
     refresh_submissions: bool = False,
 ) -> dict:
     """Fetch new comments from bot submissions across the subreddit.
@@ -266,7 +265,7 @@ def mark_comment_saved(comment_id: str) -> bool:
 def reply_to_comment(
     comment_id: str,
     template_name: str,
-    format_args: Optional[dict] = None,
+    format_args: dict | None = None,
 ) -> str:
     """Reply to a comment using a template.
 
