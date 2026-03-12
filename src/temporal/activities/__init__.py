@@ -3,7 +3,6 @@
 from .comments import (
     fetch_new_comments,
     mark_comment_saved,
-    post_confirmation_reply,
     reply_to_comment,
     validate_confirmation,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "validate_confirmation",
     "mark_comment_saved",
     "reply_to_comment",
-    "post_confirmation_reply",
     # Flair
     "get_user_flair",
     "set_user_flair",
