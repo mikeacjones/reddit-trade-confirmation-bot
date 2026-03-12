@@ -27,6 +27,16 @@ class FlairCoordinatorWorkflow:
         # serialised through this workflow, our own bookkeeping is authoritative.
         self._last_known_count: dict[str, int] = {}
 
+    def _record_result(self, request_id: str, result: dict) -> None:
+        """Store a result, evict oldest entries if over cap, and flag continue-as-new if needed."""
+        self._results_by_request_id[request_id] = result
+        self._applied_count += 1
+        while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
+            oldest_key = next(iter(self._results_by_request_id))
+            del self._results_by_request_id[oldest_key]
+        if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
+            self._should_continue_as_new = True
+
     @workflow.run
     async def run(
         self,
@@ -92,15 +102,7 @@ class FlairCoordinatorWorkflow:
                         new_flair=current.get("flair_text"),
                     )
                 )
-                self._results_by_request_id[req.request_id] = result
-                self._applied_count += 1
-
-                while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
-                    oldest_key = next(iter(self._results_by_request_id))
-                    del self._results_by_request_id[oldest_key]
-
-                if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
-                    self._should_continue_as_new = True
+                self._record_result(req.request_id, result)
                 return result
 
             # Use our cached count when it's ahead of what Reddit returned,
@@ -132,15 +134,7 @@ class FlairCoordinatorWorkflow:
                 )
             )
 
-            self._results_by_request_id[req.request_id] = result
-            self._applied_count += 1
-
-            while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
-                oldest_key = next(iter(self._results_by_request_id))
-                del self._results_by_request_id[oldest_key]
-
-            if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
-                self._should_continue_as_new = True
+            self._record_result(req.request_id, result)
 
             return result
         finally:
