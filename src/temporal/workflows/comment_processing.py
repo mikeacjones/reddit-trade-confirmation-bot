@@ -305,15 +305,19 @@ class ProcessConfirmationWorkflow:
             # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
             reply_comment_id = validation.get("reply_to_comment_id") or comment_id
             await workflow.execute_activity(
-                comment_activities.post_confirmation_reply,
+                comment_activities.reply_to_comment,
                 args=[
                     reply_comment_id,
-                    parent_author,
-                    confirmer,
-                    parent_result.get("old_flair"),
-                    parent_result.get("new_flair"),
-                    confirmer_result.get("old_flair"),
-                    confirmer_result.get("new_flair"),
+                    "trade_confirmation",
+                    {
+                        "comment_id": reply_comment_id,
+                        "confirmer": confirmer,
+                        "parent_author": parent_author,
+                        "old_comment_flair": confirmer_result.get("old_flair") or "unknown",
+                        "new_comment_flair": confirmer_result.get("new_flair") or "unknown",
+                        "old_parent_flair": parent_result.get("old_flair") or "unknown",
+                        "new_parent_flair": parent_result.get("new_flair") or "unknown",
+                    },
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,

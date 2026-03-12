@@ -41,3 +41,19 @@ class TemplateManager:
         template_path = template_dir / f"{template_name}.md"
         with template_path.open("r", encoding="utf-8") as f:
             return f.read()
+
+    @classmethod
+    def format(cls, template_name: str, subreddit, **kwargs) -> str:
+        """Load and format a template, falling back to local file if wiki template has bad placeholders."""
+        template = cls.load(template_name, subreddit)
+        try:
+            return template.format(**kwargs)
+        except (KeyError, ValueError, IndexError) as exc:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "Template '%s' formatting failed (%s: %s); falling back to local file",
+                template_name, type(exc).__name__, exc,
+            )
+            local_template = cls.load_local(template_name)
+            cls._cache[template_name] = local_template
+            return local_template.format(**kwargs)
