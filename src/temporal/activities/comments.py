@@ -138,10 +138,9 @@ def fetch_new_comments(
         listing_exhausted = False
 
     # Build updated seen_ids: merge newly scanned IDs with previous set, keep newest 1000.
+    # scanned_ids is newest-first (from the listing), followed by previous seen_ids
+    # (also newest-first from prior runs), so truncation naturally keeps the newest.
     all_ids = scanned_ids + [sid for sid in (seen_ids or []) if sid not in set(scanned_ids)]
-    # all_ids is roughly newest-first (scanned_ids are newest-first from the listing).
-    # Sort by base-36 value descending to keep the newest, then trim.
-    all_ids.sort(key=lambda x: int(x, 36), reverse=True)
     updated_seen_ids = all_ids[:SEEN_IDS_MAX]
 
     activity.logger.info(
