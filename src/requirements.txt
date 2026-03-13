@@ -1,4 +1,0 @@
-praw>=7.7.1
-prawcore>=2.4.0
-python-dotenv>=1.0.0
-temporalio>=1.7.0

@@ -1,7 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from temporalio import workflow
 
@@ -30,12 +29,7 @@ def _is_control_flow_stop_exception(exc: Exception) -> bool:
     """Return True for cancellation/termination-style exceptions."""
     for err in _iter_exception_chain(exc):
         err_type = type(err).__name__.lower()
-        if (
-            "cancel" in err_type
-            or "cancellation" in err_type
-            or "terminate" in err_type
-            or "terminated" in err_type
-        ):
+        if "cancel" in err_type or "terminate" in err_type:
             return True
 
     return False
@@ -94,7 +88,7 @@ class CommentPollingWorkflow:
     @workflow.run
     async def run(
         self,
-        seen_ids: Optional[list[str]] = None,
+        seen_ids: list[str] | None = None,
         poll_delay: float = MIN_POLL_DELAY,
     ) -> dict:
         """Run the comment polling loop.
@@ -122,16 +116,14 @@ class CommentPollingWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            comments = poll_result.get("comments", []) if isinstance(poll_result, dict) else []
-            found_seen = bool(poll_result.get("found_seen", True)) if isinstance(poll_result, dict) else True
-            listing_exhausted = bool(poll_result.get("listing_exhausted", False)) if isinstance(poll_result, dict) else False
-            scanned_count = poll_result.get("scanned_count", 0) if isinstance(poll_result, dict) else 0
-            if not isinstance(scanned_count, int):
-                scanned_count = 0
-            updated_seen_ids = poll_result.get("seen_ids", []) if isinstance(poll_result, dict) else []
+            comments = poll_result.get("comments", [])
+            found_seen = poll_result.get("found_seen", True)
+            listing_exhausted = poll_result.get("listing_exhausted", False)
+            scanned_count = poll_result.get("scanned_count", 0)
+            updated_seen_ids = poll_result.get("seen_ids", [])
 
             # Update seen_ids from activity result.
-            if isinstance(updated_seen_ids, list) and updated_seen_ids:
+            if updated_seen_ids:
                 self._seen_ids = updated_seen_ids
 
             possible_gap = (
@@ -215,13 +207,23 @@ class CommentPollingWorkflow:
 class ProcessConfirmationWorkflow:
     """Process a single comment for potential trade confirmation."""
 
+    @staticmethod
+    async def _save(comment_id: str) -> None:
+        """Mark a comment as saved/processed."""
+        await workflow.execute_activity(
+            comment_activities.mark_comment_saved,
+            args=[comment_id],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=REDDIT_RETRY_POLICY,
+        )
+
     @workflow.run
     async def run(self, comment_data: dict) -> dict:
         """Process a potential trade confirmation comment."""
         comment_id = comment_data["id"]
         author = comment_data["author_name"]
 
-        workflow.logger.info(f"Processing comment {comment_id} by {author}")
+        workflow.logger.info("Processing comment %s by %s", comment_id, author)
 
         try:
             # Validate the confirmation
@@ -246,24 +248,14 @@ class ProcessConfirmationWorkflow:
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
-                    await workflow.execute_activity(
-                        comment_activities.mark_comment_saved,
-                        args=[comment_id],
-                        start_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=REDDIT_RETRY_POLICY,
-                    )
+                    await self._save(comment_id)
                     return {
                         "status": "rejected",
                         "reason": reason,
                         "comment_id": comment_id,
                     }
 
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(comment_id)
                 return {"status": "skipped", "comment_id": comment_id}
 
             # Valid confirmation - request coordinated flair updates
@@ -302,37 +294,31 @@ class ProcessConfirmationWorkflow:
             confirmer_result = await confirmer_increment
 
             if parent_comment_id:
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[parent_comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(parent_comment_id)
 
             # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
             reply_comment_id = validation.get("reply_to_comment_id") or comment_id
             await workflow.execute_activity(
-                comment_activities.post_confirmation_reply,
+                comment_activities.reply_to_comment,
                 args=[
                     reply_comment_id,
-                    parent_author,
-                    confirmer,
-                    parent_result.get("old_flair"),
-                    parent_result.get("new_flair"),
-                    confirmer_result.get("old_flair"),
-                    confirmer_result.get("new_flair"),
+                    "trade_confirmation",
+                    {
+                        "comment_id": reply_comment_id,
+                        "confirmer": confirmer,
+                        "parent_author": parent_author,
+                        "old_comment_flair": confirmer_result.get("old_flair") or "unknown",
+                        "new_comment_flair": confirmer_result.get("new_flair") or "unknown",
+                        "old_parent_flair": parent_result.get("old_flair") or "unknown",
+                        "new_parent_flair": parent_result.get("new_flair") or "unknown",
+                    },
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
             # Save confirming comment only after successful confirmation flow.
-            await workflow.execute_activity(
-                comment_activities.mark_comment_saved,
-                args=[comment_id],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
+            await self._save(comment_id)
 
             comment_created = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
             elapsed = workflow.now() - comment_created
@@ -393,12 +379,7 @@ class ProcessConfirmationWorkflow:
                 )
 
             try:
-                await workflow.execute_activity(
-                    comment_activities.mark_comment_saved,
-                    args=[comment_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
+                await self._save(comment_id)
             except Exception as save_exc:
                 workflow.logger.warning(
                     "Failed to save manual-review comment %s: %s: %s",

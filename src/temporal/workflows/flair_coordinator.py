@@ -1,6 +1,6 @@
 """Centralized workflow to coordinate flair increments."""
 
-from dataclasses import asdict
+from collections import OrderedDict
 from datetime import timedelta
 
 from temporalio import workflow
@@ -14,40 +14,38 @@ class FlairCoordinatorWorkflow:
     """Serializes flair increments per-user and deduplicates request IDs."""
 
     MAX_APPLIED_BEFORE_CONTINUE_AS_NEW = 500
-    MAX_DEDUPE_RESULTS = 2000
+    MAX_FLAIR_CACHE = 30
 
     def __init__(self) -> None:
         self._results_by_request_id: dict[str, dict] = {}
         self._users_in_progress: set[str] = set()
         self._applied_count = 0
         self._should_continue_as_new = False
-        # Cache of last-set flair counts per user.  Reddit's flair read API
+        # LRU cache of last-set flair counts per user.  Reddit's flair read API
         # (GET flairlist) is eventually consistent and can return stale data
         # immediately after a write (POST flair).  Because all increments are
         # serialised through this workflow, our own bookkeeping is authoritative.
-        self._last_known_count: dict[str, int] = {}
+        self._last_known_count: OrderedDict[str, int] = OrderedDict()
+
+    def _record_result(self, request_id: str, result: dict) -> None:
+        """Store a result and flag continue-as-new if needed."""
+        self._results_by_request_id[request_id] = result
+        self._applied_count += 1
+        if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
+            self._should_continue_as_new = True
 
     @workflow.run
     async def run(
         self,
-        carried_results: list[dict] | None = None,
         carried_flair_counts: dict[str, int] | None = None,
     ) -> None:
         """Run indefinitely until continue-as-new rollover is requested."""
-        if carried_results:
-            self._results_by_request_id = {
-                item["request_id"]: item["result"] for item in carried_results
-            }
         if carried_flair_counts:
-            self._last_known_count = carried_flair_counts
+            self._last_known_count = OrderedDict(carried_flair_counts)
 
         await workflow.wait_condition(lambda: self._should_continue_as_new)
 
-        carried = [
-            {"request_id": request_id, "result": result}
-            for request_id, result in self._results_by_request_id.items()
-        ]
-        workflow.continue_as_new(args=[carried, self._last_known_count])
+        workflow.continue_as_new(args=[dict(self._last_known_count)])
 
     @workflow.update
     async def apply_increment(self, request: dict) -> dict:
@@ -82,25 +80,15 @@ class FlairCoordinatorWorkflow:
 
             # Preserve non-trade custom flairs rather than coercing them to 0.
             if not is_trade_tracked or not isinstance(api_count, int):
-                result = asdict(
-                    FlairIncrementResult(
-                        username=req.username,
-                        applied=False,
-                        old_count=api_count if isinstance(api_count, int) else None,
-                        new_count=api_count if isinstance(api_count, int) else None,
-                        old_flair=current.get("flair_text"),
-                        new_flair=current.get("flair_text"),
-                    )
+                result = FlairIncrementResult(
+                    username=req.username,
+                    applied=False,
+                    old_count=api_count if isinstance(api_count, int) else None,
+                    new_count=api_count if isinstance(api_count, int) else None,
+                    old_flair=current.get("flair_text"),
+                    new_flair=current.get("flair_text"),
                 )
-                self._results_by_request_id[req.request_id] = result
-                self._applied_count += 1
-
-                while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
-                    oldest_key = next(iter(self._results_by_request_id))
-                    del self._results_by_request_id[oldest_key]
-
-                if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
-                    self._should_continue_as_new = True
+                self._record_result(req.request_id, result)
                 return result
 
             # Use our cached count when it's ahead of what Reddit returned,
@@ -120,27 +108,20 @@ class FlairCoordinatorWorkflow:
             )
 
             self._last_known_count[req.username] = target_count
+            self._last_known_count.move_to_end(req.username)
+            while len(self._last_known_count) > self.MAX_FLAIR_CACHE:
+                self._last_known_count.popitem(last=False)
 
-            result = asdict(
-                FlairIncrementResult(
-                    username=req.username,
-                    applied=True,
-                    old_count=current_count,
-                    new_count=target_count,
-                    old_flair=current.get("flair_text") or "Trades: 0",
-                    new_flair=set_result.get("new_flair"),
-                )
+            result = FlairIncrementResult(
+                username=req.username,
+                applied=True,
+                old_count=current_count,
+                new_count=target_count,
+                old_flair=current.get("flair_text") or "Trades: 0",
+                new_flair=set_result.get("new_flair"),
             )
 
-            self._results_by_request_id[req.request_id] = result
-            self._applied_count += 1
-
-            while len(self._results_by_request_id) > self.MAX_DEDUPE_RESULTS:
-                oldest_key = next(iter(self._results_by_request_id))
-                del self._results_by_request_id[oldest_key]
-
-            if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
-                self._should_continue_as_new = True
+            self._record_result(req.request_id, result)
 
             return result
         finally:

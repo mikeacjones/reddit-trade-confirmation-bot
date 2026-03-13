@@ -1,8 +1,5 @@
 """Flair management activities for Temporal bot."""
 
-from dataclasses import asdict
-from typing import Optional
-
 from temporalio import activity
 
 from ..shared import (
@@ -13,87 +10,84 @@ from ..shared import (
 from .reddit import get_reddit_client, get_subreddit
 
 
-class FlairManager:
-    """Manages user flair operations."""
+_flair_templates: dict | None = None
+_moderators: list | None = None
 
-    _templates: Optional[dict] = None
-    _moderators: Optional[list] = None
 
-    @classmethod
-    def _load_flair_templates(cls, subreddit) -> dict:
-        """Load flair templates from subreddit."""
-        if cls._templates is not None:
-            return cls._templates
+def _load_flair_templates(subreddit) -> dict:
+    """Load flair templates from subreddit."""
+    global _flair_templates
+    if _flair_templates is not None:
+        return _flair_templates
 
-        templates = {}
-        for template in subreddit.flair.templates:
-            match = FLAIR_TEMPLATE_PATTERN.search(template["text"])
-            if match:
-                min_trades = int(match.group(2))
-                max_trades = int(match.group(3))
-                templates[(min_trades, max_trades)] = {
-                    "id": template["id"],
-                    "template": template["text"],
-                    "mod_only": template["mod_only"],
-                }
-                activity.logger.info(
-                    "Loaded flair template: %d-%d trades", min_trades, max_trades
-                )
+    templates = {}
+    for template in subreddit.flair.templates:
+        match = FLAIR_TEMPLATE_PATTERN.search(template["text"])
+        if match:
+            min_trades = int(match.group(2))
+            max_trades = int(match.group(3))
+            templates[(min_trades, max_trades)] = {
+                "id": template["id"],
+                "template": template["text"],
+                "mod_only": template["mod_only"],
+            }
+            activity.logger.info(
+                "Loaded flair template: %d-%d trades", min_trades, max_trades
+            )
 
-        cls._templates = templates
-        return templates
+    _flair_templates = templates
+    return templates
 
-    @classmethod
-    def _load_moderators(cls, subreddit) -> list:
-        """Load list of current moderators."""
-        if cls._moderators is not None:
-            return cls._moderators
 
-        cls._moderators = [str(mod) for mod in subreddit.moderator()]
-        return cls._moderators
+def _load_moderators(subreddit) -> list:
+    """Load list of current moderators."""
+    global _moderators
+    if _moderators is not None:
+        return _moderators
 
-    @classmethod
-    def _get_flair_template(
-        cls, trade_count: int, username: str, subreddit
-    ) -> Optional[dict]:
-        """Get appropriate flair template for trade count."""
-        templates = cls._load_flair_templates(subreddit)
-        moderators = cls._load_moderators(subreddit)
+    _moderators = [str(mod) for mod in subreddit.moderator()]
+    return _moderators
 
-        for (min_trades, max_trades), template in templates.items():
-            if min_trades <= trade_count <= max_trades:
-                if template["mod_only"] == (username in moderators):
-                    return template
+
+def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | None:
+    """Get appropriate flair template for trade count."""
+    templates = _load_flair_templates(subreddit)
+    moderators = _load_moderators(subreddit)
+
+    for (min_trades, max_trades), template in templates.items():
+        if min_trades <= trade_count <= max_trades:
+            if template["mod_only"] == (username in moderators):
+                return template
+    return None
+
+
+def _format_flair(flair_template: str, count: int) -> str:
+    """Format flair text with trade count."""
+    match = FLAIR_TEMPLATE_PATTERN.search(flair_template)
+    if not match:
+        return flair_template
+    start, end = match.span(1)
+    return flair_template[:start] + str(count) + flair_template[end:]
+
+
+def apply_flair(username: str, count: int, subreddit) -> str | None:
+    """Set user's flair to specific trade count. Returns new flair text or None."""
+    template = _get_flair_template(count, username, subreddit)
+    if not template:
+        activity.logger.warning("No flair template found for %d trades", count)
         return None
 
-    @classmethod
-    def _format_flair(cls, flair_template: str, count: int) -> str:
-        """Format flair text with trade count."""
-        match = FLAIR_TEMPLATE_PATTERN.search(flair_template)
-        if not match:
-            return flair_template
-        start, end = match.span(1)
-        return flair_template[:start] + str(count) + flair_template[end:]
+    new_flair_text = _format_flair(template["template"], count)
+    subreddit.flair.set(
+        username, text=new_flair_text, flair_template_id=template["id"]
+    )
+    return new_flair_text
 
-    @classmethod
-    def set_flair(cls, username: str, count: int, subreddit) -> Optional[str]:
-        """Set user's flair to specific trade count."""
-        template = cls._get_flair_template(count, username, subreddit)
-        if not template:
-            activity.logger.warning("No flair template found for %d trades", count)
-            return None
 
-        new_flair_text = cls._format_flair(template["template"], count)
-        subreddit.flair.set(
-            username, text=new_flair_text, flair_template_id=template["id"]
-        )
-        return new_flair_text
-
-    @classmethod
-    def is_moderator(cls, username: str, subreddit) -> bool:
-        """Check if user is a moderator."""
-        moderators = cls._load_moderators(subreddit)
-        return username in moderators
+def is_moderator(username: str, subreddit) -> bool:
+    """Check if user is a moderator."""
+    moderators = _load_moderators(subreddit)
+    return username in moderators
 
 
 @activity.defn
@@ -110,7 +104,7 @@ def get_user_flair(username: str) -> dict:
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count: Optional[int] = 0
+    trade_count: int | None = 0
     if flair_text:
         match = FLAIR_PATTERN.search(flair_text)
         trade_count = int(match.group(1)) if match else None
@@ -127,7 +121,7 @@ def get_user_flair(username: str) -> dict:
 def set_user_flair(
     username: str,
     new_count: int,
-    old_flair: Optional[str] = None,
+    old_flair: str | None = None,
 ) -> dict:
     """Set a user's flair to a specific trade count.
 
@@ -148,14 +142,12 @@ def set_user_flair(
     subreddit = get_subreddit(reddit)
 
     # Set flair to the exact value specified by the workflow
-    new_flair = FlairManager.set_flair(username, new_count, subreddit)
+    new_flair = apply_flair(username, new_count, subreddit)
     activity.logger.info("u/%s flair set: '%s' -> '%s'", username, old_flair, new_flair)
 
-    return asdict(
-        FlairUpdateResult(
-            username=username,
-            old_flair=old_flair,
-            new_flair=new_flair,
-            success=new_flair is not None,
-        )
+    return FlairUpdateResult(
+        username=username,
+        old_flair=old_flair,
+        new_flair=new_flair,
+        success=new_flair is not None,
     )
