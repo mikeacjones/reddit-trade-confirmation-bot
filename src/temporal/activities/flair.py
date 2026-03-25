@@ -6,9 +6,10 @@ from ..shared import (
     FLAIR_PATTERN,
     FLAIR_TEMPLATE_PATTERN,
     FlairUpdateResult,
+    SetUserFlairInput,
+    UserFlairResult,
 )
 from .reddit import get_reddit_client, get_subreddit
-
 
 _flair_templates: dict | None = None
 _moderators: list | None = None
@@ -78,9 +79,7 @@ def apply_flair(username: str, count: int, subreddit) -> str | None:
         return None
 
     new_flair_text = _format_flair(template["template"], count)
-    subreddit.flair.set(
-        username, text=new_flair_text, flair_template_id=template["id"]
-    )
+    subreddit.flair.set(username, text=new_flair_text, flair_template_id=template["id"])
     return new_flair_text
 
 
@@ -91,14 +90,12 @@ def is_moderator(username: str, subreddit) -> bool:
 
 
 @activity.defn
-def get_user_flair(username: str) -> dict:
+def get_user_flair(username: str) -> UserFlairResult:
     """Get a user's current flair information.
 
     This is a read-only activity that returns the user's current flair text
     and trade count. Used by workflows to calculate new flair values before
     calling set_user_flair.
-
-    Returns dict with username, flair_text, trade_count, and is_trade_tracked.
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
@@ -109,20 +106,16 @@ def get_user_flair(username: str) -> dict:
         match = FLAIR_PATTERN.search(flair_text)
         trade_count = int(match.group(1)) if match else None
 
-    return {
-        "username": username,
-        "flair_text": flair_text,
-        "trade_count": trade_count,
-        "is_trade_tracked": trade_count is not None,
-    }
+    return UserFlairResult(
+        username=username,
+        flair_text=flair_text,
+        trade_count=trade_count,
+        is_trade_tracked=trade_count is not None,
+    )
 
 
 @activity.defn
-def set_user_flair(
-    username: str,
-    new_count: int,
-    old_flair: str | None = None,
-) -> dict:
+def set_user_flair(input: SetUserFlairInput) -> FlairUpdateResult:
     """Set a user's flair to a specific trade count.
 
     This activity is idempotent - calling it multiple times with the same
@@ -135,19 +128,17 @@ def set_user_flair(
 
     With a single worker, this ensures that even if the activity retries
     after a crash, the same value is always set.
-
-    Returns FlairUpdateResult as dict with username, old_flair, new_flair, and success.
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
 
     # Set flair to the exact value specified by the workflow
-    new_flair = apply_flair(username, new_count, subreddit)
-    activity.logger.info("u/%s flair set: '%s' -> '%s'", username, old_flair, new_flair)
+    new_flair = apply_flair(input.username, input.new_count, subreddit)
+    activity.logger.info("u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair)
 
     return FlairUpdateResult(
-        username=username,
-        old_flair=old_flair,
+        username=input.username,
+        old_flair=input.old_flair,
         new_flair=new_flair,
         success=new_flair is not None,
     )

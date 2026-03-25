@@ -6,7 +6,7 @@ from datetime import timedelta
 from temporalio import workflow
 
 from ..activities import flair as flair_activities
-from ..shared import FlairIncrementRequest, FlairIncrementResult, REDDIT_RETRY_POLICY
+from ..shared import REDDIT_RETRY_POLICY, FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
 
 
 @workflow.defn
@@ -17,7 +17,7 @@ class FlairCoordinatorWorkflow:
     MAX_FLAIR_CACHE = 30
 
     def __init__(self) -> None:
-        self._results_by_request_id: dict[str, dict] = {}
+        self._results_by_request_id: dict[str, FlairIncrementResult] = {}
         self._users_in_progress: set[str] = set()
         self._applied_count = 0
         self._should_continue_as_new = False
@@ -27,7 +27,7 @@ class FlairCoordinatorWorkflow:
         # serialised through this workflow, our own bookkeeping is authoritative.
         self._last_known_count: OrderedDict[str, int] = OrderedDict()
 
-    def _record_result(self, request_id: str, result: dict) -> None:
+    def _record_result(self, request_id: str, result: FlairIncrementResult) -> None:
         """Store a result and flag continue-as-new if needed."""
         self._results_by_request_id[request_id] = result
         self._applied_count += 1
@@ -48,10 +48,8 @@ class FlairCoordinatorWorkflow:
         workflow.continue_as_new(args=[dict(self._last_known_count)])
 
     @workflow.update
-    async def apply_increment(self, request: dict) -> dict:
+    async def apply_increment(self, req: FlairIncrementRequest) -> FlairIncrementResult:
         """Apply one increment request with per-user serialization."""
-        req = FlairIncrementRequest(**request)
-
         cached = self._results_by_request_id.get(req.request_id)
         if cached is not None:
             return cached
@@ -75,8 +73,8 @@ class FlairCoordinatorWorkflow:
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            api_count = current.get("trade_count")
-            is_trade_tracked = current.get("is_trade_tracked", True)
+            api_count = current.trade_count
+            is_trade_tracked = current.is_trade_tracked
 
             # Preserve non-trade custom flairs rather than coercing them to 0.
             if not is_trade_tracked or not isinstance(api_count, int):
@@ -85,8 +83,8 @@ class FlairCoordinatorWorkflow:
                     applied=False,
                     old_count=api_count if isinstance(api_count, int) else None,
                     new_count=api_count if isinstance(api_count, int) else None,
-                    old_flair=current.get("flair_text"),
-                    new_flair=current.get("flair_text"),
+                    old_flair=current.flair_text,
+                    new_flair=current.flair_text,
                 )
                 self._record_result(req.request_id, result)
                 return result
@@ -102,7 +100,13 @@ class FlairCoordinatorWorkflow:
             target_count = current_count + req.delta
             set_result = await workflow.execute_activity(
                 flair_activities.set_user_flair,
-                args=[req.username, target_count, current.get("flair_text")],
+                args=[
+                    SetUserFlairInput(
+                        username=req.username,
+                        new_count=target_count,
+                        old_flair=current.flair_text,
+                    )
+                ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
@@ -117,8 +121,8 @@ class FlairCoordinatorWorkflow:
                 applied=True,
                 old_count=current_count,
                 new_count=target_count,
-                old_flair=current.get("flair_text") or "Trades: 0",
-                new_flair=set_result.get("new_flair"),
+                old_flair=current.flair_text or "Trades: 0",
+                new_flair=set_result.new_flair,
             )
 
             self._record_result(req.request_id, result)

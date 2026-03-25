@@ -6,9 +6,8 @@ For Reddit-related utilities, see activities/reddit.py.
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import NotRequired, TypedDict
 
 from dotenv import load_dotenv
 from temporalio.common import RetryPolicy
@@ -70,7 +69,8 @@ REDDIT_RETRY_POLICY_CONSERVATIVE = RetryPolicy(
 # ============================================================================
 
 
-class CommentData(TypedDict):
+@dataclass
+class CommentData:
     """Serializable comment data for passing between activities."""
 
     id: str
@@ -84,21 +84,24 @@ class CommentData(TypedDict):
     parent_id: str
     submission_id: str
     saved: bool
+    submission_stickied: bool | None = None
 
 
-class ValidationResult(TypedDict):
+@dataclass
+class ValidationResult:
     """Result of validating a confirmation comment."""
 
     valid: bool
-    reason: NotRequired[str | None]
-    parent_author: NotRequired[str | None]
-    confirmer: NotRequired[str | None]
-    parent_comment_id: NotRequired[str | None]
-    is_mod_approval: NotRequired[bool]
-    reply_to_comment_id: NotRequired[str | None]
+    reason: str | None = None
+    parent_author: str | None = None
+    confirmer: str | None = None
+    parent_comment_id: str | None = None
+    is_mod_approval: bool = False
+    reply_to_comment_id: str | None = None
 
 
-class FlairUpdateResult(TypedDict):
+@dataclass
+class FlairUpdateResult:
     """Result of updating a user's flair."""
 
     username: str
@@ -116,15 +119,71 @@ class FlairIncrementRequest:
     delta: int = 1
 
 
-class FlairIncrementResult(TypedDict):
+@dataclass
+class FlairIncrementResult:
     """Result of a coordinated flair increment operation."""
 
     username: str
     applied: bool
-    old_count: int | None
-    new_count: int | None
-    old_flair: str | None
-    new_flair: str | None
+    old_count: int | None = None
+    new_count: int | None = None
+    old_flair: str | None = None
+    new_flair: str | None = None
+
+
+@dataclass
+class FetchCommentsInput:
+    """Input for fetching new comments."""
+
+    seen_ids: list[str] = field(default_factory=list)
+    refresh_submissions: bool = False
+
+
+@dataclass
+class FetchCommentsResult:
+    """Result of fetching new comments."""
+
+    comments: list[CommentData] = field(default_factory=list)
+    seen_ids: list[str] = field(default_factory=list)
+    found_seen: bool = True
+    listing_exhausted: bool = False
+    scanned_count: int = 0
+
+
+@dataclass
+class ReplyToCommentInput:
+    """Input for replying to a comment with a template."""
+
+    comment_id: str
+    template_name: str
+    format_args: dict | None = None
+
+
+@dataclass
+class SetUserFlairInput:
+    """Input for setting a user's flair."""
+
+    username: str
+    new_count: int
+    old_flair: str | None = None
+
+
+@dataclass
+class UserFlairResult:
+    """Result of getting a user's current flair."""
+
+    username: str
+    flair_text: str | None
+    trade_count: int | None
+    is_trade_tracked: bool
+
+
+@dataclass
+class StartConfirmationInput:
+    """Input for starting a confirmation workflow."""
+
+    workflow_id: str
+    comment_data: CommentData
 
 
 # ============================================================================

@@ -37,18 +37,18 @@ from temporalio.client import (
 )
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-# Add src to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
     LockSubmissionsWorkflow,
     MonthlyPostWorkflow,
 )
+
+# Add src to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 async def get_client() -> Client:

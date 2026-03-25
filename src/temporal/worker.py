@@ -28,23 +28,17 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Add src to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from temporal.activities import (
     create_monthly_post,
     fetch_new_comments,
     get_user_flair,
     lock_previous_submissions,
     mark_comment_saved,
-    request_flair_increment,
     reply_to_comment,
+    request_flair_increment,
     send_pushover_notification,
-    start_confirmation_workflow,
     set_user_flair,
+    start_confirmation_workflow,
     unsticky_previous_post,
     validate_confirmation,
 )
@@ -56,6 +50,12 @@ from temporal.workflows import (
     MonthlyPostWorkflow,
     ProcessConfirmationWorkflow,
 )
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Add src to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _build_runtime() -> Runtime | None:
