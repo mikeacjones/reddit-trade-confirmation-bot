@@ -1,5 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
@@ -7,7 +8,15 @@ from temporalio import workflow
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
 from ..activities import temporal_bridge as bridge_activities
-from ..shared import REDDIT_RETRY_POLICY, SUBREDDIT_NAME
+from ..shared import (
+    REDDIT_RETRY_POLICY,
+    SUBREDDIT_NAME,
+    CommentData,
+    FetchCommentsInput,
+    FlairIncrementRequest,
+    ReplyToCommentInput,
+    StartConfirmationInput,
+)
 
 
 def _iter_exception_chain(exc: BaseException):
@@ -18,9 +27,7 @@ def _iter_exception_chain(exc: BaseException):
         yield current
         seen.add(id(current))
         next_exc = (
-            getattr(current, "cause", None)
-            or current.__cause__
-            or current.__context__
+            getattr(current, "cause", None) or current.__cause__ or current.__context__
         )
         current = next_exc if isinstance(next_exc, BaseException) else None
 
@@ -110,17 +117,22 @@ class CommentPollingWorkflow:
             self._refresh_submissions = False
             poll_result = await workflow.execute_activity(
                 comment_activities.fetch_new_comments,
-                args=[self._seen_ids, refresh],
+                args=[
+                    FetchCommentsInput(
+                        seen_ids=self._seen_ids,
+                        refresh_submissions=refresh,
+                    )
+                ],
                 start_to_close_timeout=timedelta(seconds=120),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
-            comments = poll_result.get("comments", [])
-            found_seen = poll_result.get("found_seen", True)
-            listing_exhausted = poll_result.get("listing_exhausted", False)
-            scanned_count = poll_result.get("scanned_count", 0)
-            updated_seen_ids = poll_result.get("seen_ids", [])
+            comments = poll_result.comments
+            found_seen = poll_result.found_seen
+            listing_exhausted = poll_result.listing_exhausted
+            scanned_count = poll_result.scanned_count
+            updated_seen_ids = poll_result.seen_ids
 
             # Update seen_ids from activity result.
             if updated_seen_ids:
@@ -158,15 +170,17 @@ class CommentPollingWorkflow:
 
             # Process each comment via independently-started workflow
             for comment_data in comments:
-                if not isinstance(comment_data, dict) or "id" not in comment_data:
-                    continue
-
                 # Use comment ID as workflow ID for idempotency
-                workflow_id = f"process-{comment_data['id']}"
+                workflow_id = f"process-{comment_data.id}"
 
                 started = await workflow.execute_activity(
                     bridge_activities.start_confirmation_workflow,
-                    args=[workflow_id, comment_data],
+                    args=[
+                        StartConfirmationInput(
+                            workflow_id=workflow_id,
+                            comment_data=comment_data,
+                        )
+                    ],
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=REDDIT_RETRY_POLICY,
                 )
@@ -175,7 +189,7 @@ class CommentPollingWorkflow:
                 else:
                     workflow.logger.warning(
                         "Comment %s already has workflow %s, skipping start",
-                        comment_data["id"],
+                        comment_data.id,
                         workflow_id,
                     )
 
@@ -183,9 +197,7 @@ class CommentPollingWorkflow:
             if comments:
                 self._poll_delay = self.MIN_POLL_DELAY
             else:
-                self._poll_delay = min(
-                    self._poll_delay * 2, self.MAX_POLL_DELAY
-                )
+                self._poll_delay = min(self._poll_delay * 2, self.MAX_POLL_DELAY)
 
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=self._poll_delay))
@@ -195,9 +207,7 @@ class CommentPollingWorkflow:
                 workflow.logger.info(
                     "Continuing as new after %d iterations", self._iterations
                 )
-                workflow.continue_as_new(
-                    args=[self._seen_ids, self._poll_delay]
-                )
+                workflow.continue_as_new(args=[self._seen_ids, self._poll_delay])
 
         workflow.logger.info("Comment polling stopped")
         return self.get_status()
@@ -218,10 +228,10 @@ class ProcessConfirmationWorkflow:
         )
 
     @workflow.run
-    async def run(self, comment_data: dict) -> dict:
+    async def run(self, comment_data: CommentData) -> dict:
         """Process a potential trade confirmation comment."""
-        comment_id = comment_data["id"]
-        author = comment_data["author_name"]
+        comment_id = comment_data.id
+        author = comment_data.author_name
 
         workflow.logger.info("Processing comment %s by %s", comment_id, author)
 
@@ -235,16 +245,22 @@ class ProcessConfirmationWorkflow:
             )
 
             # Handle validation failure with template response
-            if not validation["valid"]:
-                reason = validation.get("reason")
+            if not validation.valid:
+                reason = validation.reason
                 if reason:
                     await workflow.execute_activity(
                         comment_activities.reply_to_comment,
-                        args=[comment_id, reason, {
-                            **comment_data,
-                            "parent_author": validation.get("parent_author"),
-                            "parent_comment_id": validation.get("parent_comment_id"),
-                        }],
+                        args=[
+                            ReplyToCommentInput(
+                                comment_id=comment_id,
+                                template_name=reason,
+                                format_args={
+                                    **asdict(comment_data),
+                                    "parent_author": validation.parent_author,
+                                    "parent_comment_id": validation.parent_comment_id,
+                                },
+                            )
+                        ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
@@ -259,19 +275,20 @@ class ProcessConfirmationWorkflow:
                 return {"status": "skipped", "comment_id": comment_id}
 
             # Valid confirmation - request coordinated flair updates
-            parent_author = validation["parent_author"]
-            confirmer = validation["confirmer"]
-            parent_comment_id = validation.get("parent_comment_id")
+            parent_author = validation.parent_author
+            confirmer = validation.confirmer
+            assert parent_author is not None and confirmer is not None
+
+            parent_comment_id = validation.parent_comment_id
             confirmation_key = f"{parent_comment_id}:{confirmer}".lower()
 
             parent_increment = workflow.start_activity(
                 bridge_activities.request_flair_increment,
                 args=[
-                    {
-                        "username": parent_author,
-                        "request_id": f"{confirmation_key}:parent",
-                        "delta": 1,
-                    }
+                    FlairIncrementRequest(
+                        username=parent_author,
+                        request_id=f"{confirmation_key}:parent",
+                    )
                 ],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
@@ -280,11 +297,10 @@ class ProcessConfirmationWorkflow:
             confirmer_increment = workflow.start_activity(
                 bridge_activities.request_flair_increment,
                 args=[
-                    {
-                        "username": confirmer,
-                        "request_id": f"{confirmation_key}:confirmer",
-                        "delta": 1,
-                    }
+                    FlairIncrementRequest(
+                        username=confirmer,
+                        request_id=f"{confirmation_key}:confirmer",
+                    )
                 ],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
@@ -297,21 +313,25 @@ class ProcessConfirmationWorkflow:
                 await self._save(parent_comment_id)
 
             # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
-            reply_comment_id = validation.get("reply_to_comment_id") or comment_id
+            reply_comment_id = validation.reply_to_comment_id or comment_id
             await workflow.execute_activity(
                 comment_activities.reply_to_comment,
                 args=[
-                    reply_comment_id,
-                    "trade_confirmation",
-                    {
-                        "comment_id": reply_comment_id,
-                        "confirmer": confirmer,
-                        "parent_author": parent_author,
-                        "old_comment_flair": confirmer_result.get("old_flair") or "unknown",
-                        "new_comment_flair": confirmer_result.get("new_flair") or "unknown",
-                        "old_parent_flair": parent_result.get("old_flair") or "unknown",
-                        "new_parent_flair": parent_result.get("new_flair") or "unknown",
-                    },
+                    ReplyToCommentInput(
+                        comment_id=reply_comment_id,
+                        template_name="trade_confirmation",
+                        format_args={
+                            "comment_id": reply_comment_id,
+                            "confirmer": confirmer,
+                            "parent_author": parent_author,
+                            "old_comment_flair": confirmer_result.old_flair
+                            or "unknown",
+                            "new_comment_flair": confirmer_result.new_flair
+                            or "unknown",
+                            "old_parent_flair": parent_result.old_flair or "unknown",
+                            "new_parent_flair": parent_result.new_flair or "unknown",
+                        },
+                    )
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
@@ -320,14 +340,16 @@ class ProcessConfirmationWorkflow:
             # Save confirming comment only after successful confirmation flow.
             await self._save(comment_id)
 
-            comment_created = datetime.fromtimestamp(comment_data["created_utc"], tz=timezone.utc)
+            comment_created = datetime.fromtimestamp(
+                comment_data.created_utc, tz=timezone.utc
+            )
             elapsed = workflow.now() - comment_created
             workflow.logger.info(
                 "Confirmed trade: %s (%s) <-> %s (%s) — %.1fs from comment to reply",
                 parent_author,
-                parent_result.get("new_flair"),
+                parent_result.new_flair,
                 confirmer,
-                confirmer_result.get("new_flair"),
+                confirmer_result.new_flair,
                 elapsed.total_seconds(),
             )
 
@@ -336,8 +358,8 @@ class ProcessConfirmationWorkflow:
                 "comment_id": comment_id,
                 "parent_author": parent_author,
                 "confirmer": confirmer,
-                "parent_new_flair": parent_result.get("new_flair"),
-                "confirmer_new_flair": confirmer_result.get("new_flair"),
+                "parent_new_flair": parent_result.new_flair,
+                "confirmer_new_flair": confirmer_result.new_flair,
             }
         except Exception as exc:
             if _is_control_flow_stop_exception(exc):

@@ -1,10 +1,12 @@
 """Comment-related activities for Temporal bot."""
 
-from datetime import datetime, timezone
-
 from temporalio import activity
 
 from ..shared import (
+    CommentData,
+    FetchCommentsInput,
+    FetchCommentsResult,
+    ReplyToCommentInput,
     ValidationResult,
     is_confirming_trade,
 )
@@ -26,10 +28,7 @@ SEEN_IDS_MAX = 1000
 
 
 @activity.defn
-def fetch_new_comments(
-    seen_ids: list[str] | None = None,
-    refresh_submissions: bool = False,
-) -> dict:
+def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     """Fetch new comments from bot submissions across the subreddit.
 
     Returns:
@@ -56,19 +55,20 @@ def fetch_new_comments(
     activity.heartbeat("Fetching bot submissions")
 
     # Use cached submissions unless this is the first call or a refresh was requested.
-    if _bot_submissions is None or refresh_submissions:
+    if _bot_submissions is None or input.refresh_submissions:
         _bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
-        if refresh_submissions:
+        if input.refresh_submissions:
             activity.logger.info("Refreshed bot submissions cache")
 
     bot_submissions = _bot_submissions
 
     activity.heartbeat("Fetching comments from subreddit")
 
+    seen_ids = input.seen_ids
     seen_ids_set: set[str] = set(seen_ids) if seen_ids else set()
     scanned_ids: list[str] = []  # ordered newest-first as we encounter them
 
-    comments = []
+    comments: list[CommentData] = []
     skipped_count = 0
     scanned_count = 0
     found_seen = not seen_ids_set  # if no prior IDs, nothing to find
@@ -124,7 +124,7 @@ def fetch_new_comments(
                             skipped_count += 1
                         else:
                             serialized_comment = serialize_comment(comment)
-                            serialized_comment["submission_stickied"] = is_stickied
+                            serialized_comment.submission_stickied = is_stickied
                             comments.append(serialized_comment)
 
         if should_stop_after_current:
@@ -140,7 +140,9 @@ def fetch_new_comments(
     # Build updated seen_ids: merge newly scanned IDs with previous set, keep newest 1000.
     # scanned_ids is newest-first (from the listing), followed by previous seen_ids
     # (also newest-first from prior runs), so truncation naturally keeps the newest.
-    all_ids = scanned_ids + [sid for sid in (seen_ids or []) if sid not in set(scanned_ids)]
+    all_ids = scanned_ids + [
+        sid for sid in (seen_ids or []) if sid not in set(scanned_ids)
+    ]
     updated_seen_ids = all_ids[:SEEN_IDS_MAX]
 
     activity.logger.info(
@@ -155,29 +157,26 @@ def fetch_new_comments(
         listing_exhausted,
         len(updated_seen_ids),
     )
-    return {
-        "comments": comments,
-        "seen_ids": updated_seen_ids,
-        "found_seen": found_seen,
-        "listing_exhausted": listing_exhausted,
-        "scanned_count": scanned_count,
-    }
+    return FetchCommentsResult(
+        comments=comments,
+        seen_ids=updated_seen_ids,
+        found_seen=found_seen,
+        listing_exhausted=listing_exhausted,
+        scanned_count=scanned_count,
+    )
 
 
 @activity.defn
-def validate_confirmation(comment_data: dict) -> dict:
-    """Validate a confirmation comment.
-
-    Returns ValidationResult as dict.
-    """
+def validate_confirmation(comment_data: CommentData) -> ValidationResult:
+    """Validate a confirmation comment."""
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
 
     # Root comments are filtered out by polling and should never reach here.
-    if comment_data["is_root"]:
+    if comment_data.is_root:
         return ValidationResult(valid=False)
 
-    comment = reddit.comment(id=comment_data["id"])
+    comment = reddit.comment(id=comment_data.id)
     subreddit = get_subreddit(reddit)
 
     # Get parent comment
@@ -191,15 +190,15 @@ def validate_confirmation(comment_data: dict) -> dict:
         return ValidationResult(valid=False)
 
     # Can't confirm your own trade
-    if parent_comment.author.name == comment_data["author_name"]:
+    if parent_comment.author.name == comment_data.author_name:
         return ValidationResult(valid=False)
 
-    comment_body = comment_data["body"].lower()
+    comment_body = comment_data.body.lower()
 
     # Handle moderator approval (for replies to confirmations)
     if not parent_comment.is_root:
         if "approved" in comment_body and is_moderator(
-            comment_data["author_name"], subreddit
+            comment_data.author_name, subreddit
         ):
             grandparent_comment = parent_comment.parent()
             if grandparent_comment and grandparent_comment.is_root:
@@ -227,7 +226,7 @@ def validate_confirmation(comment_data: dict) -> dict:
         )
 
     # Verify user is mentioned in parent comment
-    username_lower = comment_data["author_name"].lower()
+    username_lower = comment_data.author_name.lower()
     parent_body_lower = parent_comment.body.lower()
     parent_html_lower = parent_comment.body_html.lower()
 
@@ -245,9 +244,9 @@ def validate_confirmation(comment_data: dict) -> dict:
     return ValidationResult(
         valid=True,
         parent_author=parent_comment.author.name,
-        confirmer=comment_data["author_name"],
+        confirmer=comment_data.author_name,
         parent_comment_id=parent_comment.id,
-        reply_to_comment_id=comment_data["id"],
+        reply_to_comment_id=comment_data.id,
     )
 
 
@@ -261,23 +260,19 @@ def mark_comment_saved(comment_id: str) -> bool:
 
 
 @activity.defn
-def reply_to_comment(
-    comment_id: str,
-    template_name: str,
-    format_args: dict | None = None,
-) -> str:
+def reply_to_comment(input: ReplyToCommentInput) -> str:
     """Reply to a comment using a template.
 
     Returns the reply comment ID.
     """
     reddit = get_reddit_client()
     subreddit = get_subreddit(reddit)
-    comment = reddit.comment(id=comment_id)
+    comment = reddit.comment(id=input.comment_id)
 
-    if format_args:
-        reply_text = TemplateManager.format(template_name, subreddit, **format_args)
+    if input.format_args:
+        reply_text = TemplateManager.format(input.template_name, subreddit, **input.format_args)
     else:
-        reply_text = TemplateManager.load(template_name, subreddit)
+        reply_text = TemplateManager.load(input.template_name, subreddit)
 
     reply = comment.reply(reply_text)
     if reply is None:
