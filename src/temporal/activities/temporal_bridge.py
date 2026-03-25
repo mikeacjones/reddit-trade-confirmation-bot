@@ -7,7 +7,7 @@ from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from src.temporal.workflows.flair_coordinator import FlairCoordinatorWorkflow
+from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
 
 from ..shared import SUBREDDIT_NAME, TASK_QUEUE, FlairIncrementRequest, FlairIncrementResult, StartConfirmationInput
 
