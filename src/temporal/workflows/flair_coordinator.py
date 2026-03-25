@@ -4,9 +4,15 @@ from collections import OrderedDict
 from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.exceptions import ApplicationError
 
 from ..activities import flair as flair_activities
-from ..shared import REDDIT_RETRY_POLICY, FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
+from ..shared import (
+    REDDIT_RETRY_POLICY,
+    FlairIncrementRequest,
+    FlairIncrementResult,
+    SetUserFlairInput,
+)
 
 
 @workflow.defn
@@ -21,6 +27,7 @@ class FlairCoordinatorWorkflow:
         self._users_in_progress: set[str] = set()
         self._applied_count = 0
         self._should_continue_as_new = False
+        self._draining = False
         # LRU cache of last-set flair counts per user.  Reddit's flair read API
         # (GET flairlist) is eventually consistent and can return stale data
         # immediately after a write (POST flair).  Because all increments are
@@ -43,7 +50,11 @@ class FlairCoordinatorWorkflow:
         if carried_flair_counts:
             self._last_known_count = OrderedDict(carried_flair_counts)
 
-        await workflow.wait_condition(lambda: self._should_continue_as_new)
+        await workflow.wait_condition(
+            lambda: workflow.info().is_continue_as_new_suggested()
+        )
+        self._draining = True
+        await workflow.wait_condition(workflow.all_handlers_finished)
 
         workflow.continue_as_new(args=[dict(self._last_known_count)])
 
@@ -130,3 +141,8 @@ class FlairCoordinatorWorkflow:
             return result
         finally:
             self._users_in_progress.discard(username)
+
+    @apply_increment.validator
+    def validate_can_accept_increment(self, req: FlairIncrementRequest) -> None:
+        if self._draining:
+            raise ApplicationError("Workflow is draining for continue-as-new; retry")
