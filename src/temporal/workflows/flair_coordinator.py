@@ -50,9 +50,7 @@ class FlairCoordinatorWorkflow:
         if carried_flair_counts:
             self._last_known_count = OrderedDict(carried_flair_counts)
 
-        await workflow.wait_condition(
-            lambda: workflow.info().is_continue_as_new_suggested()
-        )
+        await workflow.wait_condition(workflow.info().is_continue_as_new_suggested)
         self._draining = True
         await workflow.wait_condition(workflow.all_handlers_finished)
 

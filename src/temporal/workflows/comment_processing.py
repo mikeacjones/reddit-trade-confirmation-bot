@@ -66,7 +66,6 @@ class CommentPollingWorkflow:
         self._should_stop = False
         self._seen_ids: list[str] = []
         self._processed_count = 0
-        self._iterations = 0
         self._last_gap_alert_seen_ids_len: int = 0
         self._poll_delay: float = self.MIN_POLL_DELAY
         self._refresh_submissions = False
@@ -202,11 +201,8 @@ class CommentPollingWorkflow:
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=self._poll_delay))
 
-            self._iterations += 1
-            if self._iterations >= self.MAX_ITERATIONS:
-                workflow.logger.info(
-                    "Continuing as new after %d iterations", self._iterations
-                )
+            if workflow.info().is_continue_as_new_suggested():
+                workflow.logger.info("Continuing as new after")
                 workflow.continue_as_new(args=[self._seen_ids, self._poll_delay])
 
         workflow.logger.info("Comment polling stopped")
