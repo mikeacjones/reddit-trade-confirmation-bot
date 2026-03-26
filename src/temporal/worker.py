@@ -43,6 +43,7 @@ from temporal.activities import (
     unsticky_previous_post,
     validate_confirmation,
 )
+from temporal.activities.temporal_bridge import set_temporal_client
 from temporal.shared import BUILD_ID, DEPLOYMENT_NAME, SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
@@ -86,6 +87,7 @@ async def main():
 
     logger.info(f"Connecting to Temporal at {temporal_host}")
     client = await Client.connect(temporal_host, runtime=runtime)
+    set_temporal_client(client)
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
     logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")

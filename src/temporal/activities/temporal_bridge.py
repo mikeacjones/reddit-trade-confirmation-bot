@@ -1,7 +1,5 @@
 """Temporal bridge activities for cross-workflow operations."""
 
-import os
-
 from temporalio import activity
 from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -14,19 +12,23 @@ from ..shared import SUBREDDIT_NAME, TASK_QUEUE, FlairIncrementRequest, FlairInc
 _temporal_client: Client | None = None
 
 
-async def _get_temporal_client() -> Client:
-    """Get or create a shared Temporal client for bridge activities."""
+def set_temporal_client(client: Client) -> None:
+    """Inject the worker's Temporal client for use by bridge activities."""
     global _temporal_client
+    _temporal_client = client
+
+
+def _get_temporal_client() -> Client:
+    """Get the shared Temporal client (must be set via set_temporal_client first)."""
     if _temporal_client is None:
-        temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
-        _temporal_client = await Client.connect(temporal_host)
+        raise RuntimeError("Temporal client not set - call set_temporal_client() from the worker before starting")
     return _temporal_client
 
 
 @activity.defn
 async def request_flair_increment(request: FlairIncrementRequest) -> FlairIncrementResult:
     """Route increment requests through the centralized coordinator workflow."""
-    client = await _get_temporal_client()
+    client = _get_temporal_client()
 
     start_op = WithStartWorkflowOperation(
         FlairCoordinatorWorkflow.run,
@@ -45,7 +47,7 @@ async def request_flair_increment(request: FlairIncrementRequest) -> FlairIncrem
 @activity.defn
 async def start_confirmation_workflow(input: StartConfirmationInput) -> bool:
     """Start independent confirmation workflow; return False if already running."""
-    client = await _get_temporal_client()
+    client = _get_temporal_client()
 
     try:
         await client.start_workflow(
