@@ -4,6 +4,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
+from temporalio.workflow import ContinueAsNewVersioningBehavior
 
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
@@ -203,7 +204,10 @@ class CommentPollingWorkflow:
 
             if workflow.info().is_continue_as_new_suggested():
                 workflow.logger.info("Continuing as new after")
-                workflow.continue_as_new(args=[self._seen_ids, self._poll_delay])
+                workflow.continue_as_new(
+                    args=[self._seen_ids, self._poll_delay],
+                    initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
+                )
 
         workflow.logger.info("Comment polling stopped")
         return self.get_status()

@@ -54,7 +54,10 @@ class FlairCoordinatorWorkflow:
         self._draining = True
         await workflow.wait_condition(workflow.all_handlers_finished)
 
-        workflow.continue_as_new(args=[dict(self._last_known_count)])
+        workflow.continue_as_new(
+            args=[dict(self._last_known_count)],
+            initial_versioning_behavior=workflow.ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
+        )
 
     @workflow.update
     async def apply_increment(self, req: FlairIncrementRequest) -> FlairIncrementResult:

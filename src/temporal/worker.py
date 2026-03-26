@@ -21,8 +21,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.client import Client
+from temporalio.common import VersioningBehavior, WorkerDeploymentVersion
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import Worker
+from temporalio.worker import Worker, WorkerDeploymentConfig
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
@@ -42,7 +43,7 @@ from temporal.activities import (
     unsticky_previous_post,
     validate_confirmation,
 )
-from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
+from temporal.shared import BUILD_ID, DEPLOYMENT_NAME, SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
     FlairCoordinatorWorkflow,
@@ -80,7 +81,7 @@ def _build_runtime() -> Runtime | None:
 
 async def main():
     """Start the Temporal worker."""
-    temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+    temporal_host = os.getenv("TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233"))
     runtime = _build_runtime()
 
     logger.info(f"Connecting to Temporal at {temporal_host}")
@@ -120,6 +121,14 @@ async def main():
             restrictions=SandboxRestrictions.default.with_passthrough_modules(
                 "praw", "requests", "urllib3"
             )
+        ),
+        deployment_config=WorkerDeploymentConfig(
+            version=WorkerDeploymentVersion(
+                deployment_name=DEPLOYMENT_NAME,
+                build_id=BUILD_ID,
+            ),
+            use_worker_versioning=True,
+            default_versioning_behavior=VersioningBehavior.PINNED,
         ),
     )
 
