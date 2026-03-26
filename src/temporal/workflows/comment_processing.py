@@ -202,7 +202,10 @@ class CommentPollingWorkflow:
             # Wait before next poll (durable timer - survives worker restarts)
             await workflow.sleep(timedelta(seconds=self._poll_delay))
 
-            if workflow.info().is_continue_as_new_suggested():
+            if (
+                workflow.info().is_continue_as_new_suggested()
+                or workflow.info().is_target_worker_deployment_version_changed()
+            ):
                 workflow.logger.info("Continuing as new after")
                 workflow.continue_as_new(
                     args=[self._seen_ids, self._poll_delay],
