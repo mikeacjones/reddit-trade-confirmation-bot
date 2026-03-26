@@ -86,7 +86,7 @@ async def main():
     runtime = _build_runtime()
 
     logger.info(f"Connecting to Temporal at {temporal_host}")
-    client = await Client.connect(temporal_host, runtime=runtime)
+    client = await Client.connect(temporal_host, namespace="reddit-bots", runtime=runtime)
     set_temporal_client(client)
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")

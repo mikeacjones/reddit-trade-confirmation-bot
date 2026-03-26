@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 async def get_client() -> Client:
     """Get Temporal client."""
     temporal_host = os.getenv("TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233"))
-    return await Client.connect(temporal_host)
+    return await Client.connect(temporal_host, namespace="reddit-bots")
 
 
 async def setup_schedules():
@@ -138,7 +138,7 @@ async def start_polling():
         )
         logger.info(f"Started polling workflow: {workflow_id}")
         logger.info(
-            f"View in Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}"
+            f"View in Temporal UI: http://localhost:8233/namespaces/reddit-bots/workflows/{workflow_id}"
         )
     except WorkflowAlreadyStartedError:
         logger.info(f"Polling workflow {workflow_id} is already running")
