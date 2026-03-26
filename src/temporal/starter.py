@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 async def get_client() -> Client:
     """Get Temporal client."""
-    temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+    temporal_host = os.getenv("TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233"))
     return await Client.connect(temporal_host)
 
 
