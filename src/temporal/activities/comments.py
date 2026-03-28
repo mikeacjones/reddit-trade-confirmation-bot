@@ -141,9 +141,10 @@ def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
         found_seen,
         listing_exhausted,
     )
+    new_ids = [sid for sid in scanned_ids if sid not in seen_ids_set]
     return FetchCommentsResult(
         comments=comments,
-        scanned_ids=scanned_ids,
+        scanned_ids=new_ids,
         found_seen=found_seen,
         listing_exhausted=listing_exhausted,
         scanned_count=scanned_count,

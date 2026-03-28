@@ -134,13 +134,11 @@ class CommentPollingWorkflow:
             listing_exhausted = poll_result.listing_exhausted
             scanned_count = poll_result.scanned_count
 
-            # Merge scanned_ids into workflow state: newest-first scanned IDs
-            # followed by previous seen_ids, truncated to the watermark size.
+            # Prepend new IDs to workflow state, truncate to watermark size.
+            # scanned_ids contains only IDs not already in our watermark.
             if poll_result.scanned_ids:
-                scanned_set = set(poll_result.scanned_ids)
                 self._seen_ids = (
-                    poll_result.scanned_ids
-                    + [sid for sid in self._seen_ids if sid not in scanned_set]
+                    poll_result.scanned_ids + self._seen_ids
                 )[:WATERMARK_IDS_MAX]
 
             possible_gap = (
