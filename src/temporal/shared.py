@@ -28,6 +28,11 @@ TASK_QUEUE = f"trade-confirmation-bot-{SUBREDDIT_NAME}"
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
 FLAIR_TEMPLATE_PATTERN = re.compile(r"Trades: ((\d+)-(\d+))")
 
+# Number of recent comment IDs to track as a scan-termination watermark.
+# The workflow maintains this many IDs and passes them to the polling activity.
+# comment.saved provides the durable safety net for outage recovery.
+WATERMARK_IDS_MAX = 50
+
 # ============================================================================
 # Retry Policies
 # ============================================================================
@@ -146,7 +151,7 @@ class FetchCommentsResult:
     """Result of fetching new comments."""
 
     comments: list[CommentData] = field(default_factory=list)
-    seen_ids: list[str] = field(default_factory=list)
+    scanned_ids: list[str] = field(default_factory=list)
     found_seen: bool = True
     listing_exhausted: bool = False
     scanned_count: int = 0

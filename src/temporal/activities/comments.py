@@ -24,20 +24,13 @@ from .reddit import (
 _bot_submissions: dict | None = None
 
 
-SEEN_IDS_MAX = 1000
-
-
 @activity.defn
 def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     """Fetch new comments from bot submissions across the subreddit.
 
-    Returns:
-        dict with:
-            - comments: list of serialized CommentData dicts to process
-            - seen_ids: updated list of recently-seen comment IDs (bounded to ~1000)
-            - found_seen: whether we encountered a previously-seen comment
-            - listing_exhausted: whether we consumed the entire listing window
-            - scanned_count: number of comments scanned in this poll
+    The workflow passes a small watermark of recent seen IDs for scan
+    termination.  This activity returns only the IDs it scanned (scanned_ids)
+    — the workflow is responsible for merging them into its own state.
 
     Scan termination: keeps scanning until at least one comment is recognised
     as "seen" (present in seen_ids OR marked saved on Reddit).  This avoids
@@ -137,29 +130,20 @@ def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
         found_seen = True
         listing_exhausted = False
 
-    # Build updated seen_ids: merge newly scanned IDs with previous set, keep newest 1000.
-    # scanned_ids is newest-first (from the listing), followed by previous seen_ids
-    # (also newest-first from prior runs), so truncation naturally keeps the newest.
-    all_ids = scanned_ids + [
-        sid for sid in (seen_ids or []) if sid not in set(scanned_ids)
-    ]
-    updated_seen_ids = all_ids[:SEEN_IDS_MAX]
-
     activity.logger.info(
         (
             "Fetched %d comments for processing, skipped %d from subreddit, "
-            "scanned=%d, found_seen=%s, listing_exhausted=%s, seen_ids_size=%d"
+            "scanned=%d, found_seen=%s, listing_exhausted=%s"
         ),
         len(comments),
         skipped_count,
         scanned_count,
         found_seen,
         listing_exhausted,
-        len(updated_seen_ids),
     )
     return FetchCommentsResult(
         comments=comments,
-        seen_ids=updated_seen_ids,
+        scanned_ids=scanned_ids,
         found_seen=found_seen,
         listing_exhausted=listing_exhausted,
         scanned_count=scanned_count,

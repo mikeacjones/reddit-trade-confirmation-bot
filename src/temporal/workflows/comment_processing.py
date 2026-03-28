@@ -12,6 +12,7 @@ from ..activities import temporal_bridge as bridge_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
     SUBREDDIT_NAME,
+    WATERMARK_IDS_MAX,
     CommentData,
     FetchCommentsInput,
     FlairIncrementRequest,
@@ -132,11 +133,15 @@ class CommentPollingWorkflow:
             found_seen = poll_result.found_seen
             listing_exhausted = poll_result.listing_exhausted
             scanned_count = poll_result.scanned_count
-            updated_seen_ids = poll_result.seen_ids
 
-            # Update seen_ids from activity result.
-            if updated_seen_ids:
-                self._seen_ids = updated_seen_ids
+            # Merge scanned_ids into workflow state: newest-first scanned IDs
+            # followed by previous seen_ids, truncated to the watermark size.
+            if poll_result.scanned_ids:
+                scanned_set = set(poll_result.scanned_ids)
+                self._seen_ids = (
+                    poll_result.scanned_ids
+                    + [sid for sid in self._seen_ids if sid not in scanned_set]
+                )[:WATERMARK_IDS_MAX]
 
             possible_gap = (
                 had_seen_ids
