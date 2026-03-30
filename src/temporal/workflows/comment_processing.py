@@ -10,6 +10,7 @@ from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePoli
 
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
+from ..activities import temporal_bridge as bridge_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
     SUBREDDIT_NAME,
