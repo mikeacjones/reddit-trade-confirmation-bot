@@ -185,13 +185,6 @@ class UserFlairResult:
     is_trade_tracked: bool
 
 
-@dataclass
-class StartConfirmationInput:
-    """Input for starting a confirmation workflow."""
-
-    workflow_id: str
-    comment_data: CommentData
-
 
 # ============================================================================
 # Utility Functions (workflow-safe - no praw)

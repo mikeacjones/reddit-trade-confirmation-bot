@@ -4,20 +4,22 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
-from temporalio.workflow import ContinueAsNewVersioningBehavior
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
-from ..activities import temporal_bridge as bridge_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
     SUBREDDIT_NAME,
+    TASK_QUEUE,
     WATERMARK_IDS_MAX,
     CommentData,
     FetchCommentsInput,
     FlairIncrementRequest,
+    FlairIncrementResult,
     ReplyToCommentInput,
-    StartConfirmationInput,
 )
 
 
@@ -171,25 +173,21 @@ class CommentPollingWorkflow:
             elif found_seen:
                 self._last_gap_alert_seen_ids_len = 0
 
-            # Process each comment via independently-started workflow
+            # Process each comment via child workflow (fire-and-forget)
             for comment_data in comments:
-                # Use comment ID as workflow ID for idempotency
                 workflow_id = f"process-{comment_data.id}"
 
-                started = await workflow.execute_activity(
-                    bridge_activities.start_confirmation_workflow,
-                    args=[
-                        StartConfirmationInput(
-                            workflow_id=workflow_id,
-                            comment_data=comment_data,
-                        )
-                    ],
-                    start_to_close_timeout=timedelta(seconds=30),
-                    retry_policy=REDDIT_RETRY_POLICY,
-                )
-                if started:
+                try:
+                    await workflow.start_child_workflow(
+                        ProcessConfirmationWorkflow.run,
+                        comment_data,
+                        id=workflow_id,
+                        task_queue=TASK_QUEUE,
+                        parent_close_policy=ParentClosePolicy.ABANDON,
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
                     self._processed_count += 1
-                else:
+                except WorkflowAlreadyStartedError:
                     workflow.logger.warning(
                         "Comment %s already has workflow %s, skipping start",
                         comment_data.id,

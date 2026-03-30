@@ -39,7 +39,6 @@ from temporal.activities import (
     request_flair_increment,
     send_pushover_notification,
     set_user_flair,
-    start_confirmation_workflow,
     unsticky_previous_post,
     validate_confirmation,
 )
@@ -110,7 +109,6 @@ async def main():
             get_user_flair,
             set_user_flair,
             request_flair_increment,
-            start_confirmation_workflow,
             mark_comment_saved,
             reply_to_comment,
             create_monthly_post,
