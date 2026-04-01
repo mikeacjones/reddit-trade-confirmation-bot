@@ -95,6 +95,7 @@ class CommentPollingWorkflow:
     async def run(
         self,
         seen_ids: list[str] | None = None,
+        _poll_delay: float = 0,  # accepted for backwards compat with in-flight continue-as-new
     ) -> dict:
         """Run the comment polling loop.
 
