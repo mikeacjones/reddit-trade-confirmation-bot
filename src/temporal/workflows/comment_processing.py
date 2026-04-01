@@ -1,5 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
+import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
@@ -51,28 +52,23 @@ def _is_control_flow_stop_exception(exc: Exception) -> bool:
 class CommentPollingWorkflow:
     """Continuously polls for new comments and processes them.
 
-    This workflow runs indefinitely, periodically checking for new comments
-    in the specified submission and starting independent workflows to process them.
+    Delegates polling to a long-running activity that loops internally,
+    heartbeating and sleeping between iterations.  The activity only returns
+    when new confirming comments are found (or a watermark gap is detected).
 
-    Uses adaptive polling inspired by PRAW's stream_generator: starts at 1 second,
-    doubles on each empty response up to 16 seconds, and resets to 1 second when
-    new comments are found.
+    The workflow remains responsive to signals (stop, invalidate_submissions)
+    by using ``start_activity`` + ``wait_condition``.  When a signal arrives
+    the running activity is cancelled and, if appropriate, restarted.
     """
 
-    # Continue-as-new after this many iterations to prevent unbounded event history
-    MAX_ITERATIONS = 500
     # Alert when we scan deep into the listing and still cannot find the watermark.
     WATERMARK_GAP_SCAN_THRESHOLD = 900
-    # Adaptive polling bounds (seconds)
-    MIN_POLL_DELAY = 1.0
-    MAX_POLL_DELAY = 3.0
 
     def __init__(self):
         self._should_stop = False
         self._seen_ids: list[str] = []
         self._processed_count = 0
         self._last_gap_alert_seen_ids_len: int = 0
-        self._poll_delay: float = self.MIN_POLL_DELAY
         self._refresh_submissions = False
 
     @workflow.signal
@@ -92,7 +88,6 @@ class CommentPollingWorkflow:
             "last_seen_id": self._seen_ids[0] if self._seen_ids else None,
             "processed_count": self._processed_count,
             "running": not self._should_stop,
-            "poll_delay": self._poll_delay,
             "seen_ids_count": len(self._seen_ids),
         }
 
@@ -100,37 +95,56 @@ class CommentPollingWorkflow:
     async def run(
         self,
         seen_ids: list[str] | None = None,
-        poll_delay: float = MIN_POLL_DELAY,
     ) -> dict:
         """Run the comment polling loop.
 
         Args:
             seen_ids: Recently-seen comment IDs (carried over from continue-as-new).
-            poll_delay: Current adaptive poll delay (carried over from continue-as-new).
 
         Returns:
             Final status when stopped.
         """
         self._seen_ids = seen_ids or []
-        self._poll_delay = poll_delay
         workflow.logger.info("Starting comment polling for subreddit")
 
         while not self._should_stop:
             had_seen_ids = len(self._seen_ids) > 0
             refresh = self._refresh_submissions
             self._refresh_submissions = False
-            poll_result = await workflow.execute_activity(
-                comment_activities.fetch_new_comments,
+
+            # Start long-running poll activity (non-blocking).
+            activity_handle = workflow.start_activity(
+                comment_activities.poll_new_comments,
                 args=[
                     FetchCommentsInput(
                         seen_ids=self._seen_ids,
                         refresh_submissions=refresh,
                     )
                 ],
-                start_to_close_timeout=timedelta(seconds=120),
+                start_to_close_timeout=timedelta(hours=24),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
+
+            # Wait for activity completion OR a signal.
+            await workflow.wait_condition(
+                lambda: activity_handle.done()
+                or self._should_stop
+                or self._refresh_submissions
+            )
+
+            if not activity_handle.done():
+                # A signal arrived before the activity finished — cancel and
+                # let the loop re-evaluate (stop or restart with refresh).
+                activity_handle.cancel()
+                try:
+                    await activity_handle
+                except asyncio.CancelledError:
+                    pass
+                continue
+
+            # Activity completed — process results.
+            poll_result = await activity_handle
 
             comments = poll_result.comments
             found_seen = poll_result.found_seen
@@ -138,11 +152,10 @@ class CommentPollingWorkflow:
             scanned_count = poll_result.scanned_count
 
             # Prepend new IDs to workflow state, truncate to watermark size.
-            # scanned_ids contains only IDs not already in our watermark.
             if poll_result.scanned_ids:
-                self._seen_ids = (
-                    poll_result.scanned_ids + self._seen_ids
-                )[:WATERMARK_IDS_MAX]
+                self._seen_ids = (poll_result.scanned_ids + self._seen_ids)[
+                    :WATERMARK_IDS_MAX
+                ]
 
             possible_gap = (
                 had_seen_ids
@@ -195,22 +208,13 @@ class CommentPollingWorkflow:
                         workflow_id,
                     )
 
-            # Adaptive delay: reset on activity, back off when idle
-            if comments:
-                self._poll_delay = self.MIN_POLL_DELAY
-            else:
-                self._poll_delay = min(self._poll_delay * 2, self.MAX_POLL_DELAY)
-
-            # Wait before next poll (durable timer - survives worker restarts)
-            await workflow.sleep(timedelta(seconds=self._poll_delay))
-
             if (
                 workflow.info().is_continue_as_new_suggested()
                 or workflow.info().is_target_worker_deployment_version_changed()
             ):
-                workflow.logger.info("Continuing as new after")
+                workflow.logger.info("Continuing as new")
                 workflow.continue_as_new(
-                    args=[self._seen_ids, self._poll_delay],
+                    args=[self._seen_ids],
                     initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
                 )
 
@@ -385,40 +389,16 @@ class ProcessConfirmationWorkflow:
                 error_message,
             )
 
-            try:
-                await workflow.execute_activity(
-                    notification_activities.send_pushover_notification,
-                    args=[
-                        (
-                            f"[r/{SUBREDDIT_NAME}] Manual review required for "
-                            f"comment {comment_id} by u/{author}: {error_type}: "
-                            f"{error_message}"
-                        )
-                    ],
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-            except Exception as notify_exc:
-                workflow.logger.warning(
-                    "Failed to send manual review notification for comment %s: %s: %s",
-                    comment_id,
-                    type(notify_exc).__name__,
-                    str(notify_exc),
-                )
+            await workflow.execute_activity(
+                notification_activities.send_pushover_notification,
+                args=[
+                    (
+                        f"[r/{SUBREDDIT_NAME}] Manual review required for "
+                        f"comment {comment_id} by u/{author}: {error_type}: "
+                        f"{error_message}"
+                    )
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
 
-            try:
-                await self._save(comment_id)
-            except Exception as save_exc:
-                workflow.logger.warning(
-                    "Failed to save manual-review comment %s: %s: %s",
-                    comment_id,
-                    type(save_exc).__name__,
-                    str(save_exc),
-                )
-
-            return {
-                "status": "manual_review_required",
-                "comment_id": comment_id,
-                "author": author,
-                "error_type": error_type,
-                "error": error_message,
-            }
+            raise

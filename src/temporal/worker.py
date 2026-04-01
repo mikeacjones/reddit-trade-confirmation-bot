@@ -31,7 +31,7 @@ from temporalio.worker.workflow_sandbox import (
 
 from temporal.activities import (
     create_monthly_post,
-    fetch_new_comments,
+    poll_new_comments,
     get_user_flair,
     lock_previous_submissions,
     mark_comment_saved,
@@ -104,7 +104,7 @@ async def main():
             LockSubmissionsWorkflow,
         ],
         activities=[
-            fetch_new_comments,
+            poll_new_comments,
             validate_confirmation,
             get_user_flair,
             set_user_flair,

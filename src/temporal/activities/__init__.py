@@ -1,7 +1,7 @@
 """Temporal activities for Reddit trade confirmation bot."""
 
 from .comments import (
-    fetch_new_comments,
+    poll_new_comments,
     mark_comment_saved,
     reply_to_comment,
     validate_confirmation,
@@ -17,7 +17,7 @@ from .temporal_bridge import request_flair_increment
 
 __all__ = [
     # Comments
-    "fetch_new_comments",
+    "poll_new_comments",
     "validate_confirmation",
     "mark_comment_saved",
     "reply_to_comment",

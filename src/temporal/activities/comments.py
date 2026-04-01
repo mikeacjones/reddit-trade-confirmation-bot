@@ -1,5 +1,7 @@
 """Comment-related activities for Temporal bot."""
 
+import time
+
 from temporalio import activity
 
 from ..shared import (
@@ -23,21 +25,25 @@ from .reddit import (
 # Module-level submission cache — invalidated via signal from MonthlyPostWorkflow.
 _bot_submissions: dict | None = None
 
+# Adaptive polling bounds (seconds)
+_MIN_POLL_DELAY = 1.0
+_MAX_POLL_DELAY = 3.0
+
+# Alert when we scan deep into the listing and still cannot find the watermark.
+_WATERMARK_GAP_SCAN_THRESHOLD = 900
+
 
 @activity.defn
-def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
-    """Fetch new comments from bot submissions across the subreddit.
+def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
+    """Long-running activity that polls for new comments.
+
+    Runs an internal loop, heartbeating and sleeping between iterations.
+    Returns only when new confirming comments are found or a watermark gap
+    is detected.  The workflow can cancel this activity via signals.
 
     The workflow passes a small watermark of recent seen IDs for scan
-    termination.  This activity returns only the IDs it scanned (scanned_ids)
-    — the workflow is responsible for merging them into its own state.
-
-    Scan termination: keeps scanning until at least one comment is recognised
-    as "seen" (present in seen_ids OR marked saved on Reddit).  This avoids
-    missing comments whose IDs arrive out of order.
-
-    Filters out comments that clearly don't need workflows.
-    Sends heartbeats during processing to signal liveness.
+    termination.  This activity maintains its own internal watermark across
+    iterations and returns new IDs for the workflow to merge.
     """
     global _bot_submissions
 
@@ -55,100 +61,121 @@ def fetch_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
 
     bot_submissions = _bot_submissions
 
-    activity.heartbeat("Fetching comments from subreddit")
+    # Internal watermark tracking (evolves across poll iterations).
+    original_seen_set = frozenset(input.seen_ids) if input.seen_ids else frozenset()
+    seen_ids_set: set[str] = set(original_seen_set)
+    had_initial_watermark = bool(original_seen_set)
 
-    seen_ids = input.seen_ids
-    seen_ids_set: set[str] = set(seen_ids) if seen_ids else set()
-    scanned_ids: list[str] = []  # ordered newest-first as we encounter them
+    # IDs new relative to the workflow's watermark, newest-first.
+    accumulated_new_ids: list[str] = []
+    accumulated_new_set: set[str] = set()
 
-    comments: list[CommentData] = []
-    skipped_count = 0
-    scanned_count = 0
-    found_seen = not seen_ids_set  # if no prior IDs, nothing to find
-    batch_found_seen = False  # tracks whether current batch of 100 has a seen comment
-    listing_exhausted = True
+    poll_delay = _MIN_POLL_DELAY
 
-    for comment in subreddit.comments(limit=None):
-        scanned_count += 1
-        if scanned_count % 50 == 0:
-            activity.heartbeat(f"Scanned {scanned_count} comments")
+    while True:
+        activity.heartbeat(f"Polling (delay={poll_delay:.1f}s, watermark={len(seen_ids_set)})")
 
-        scanned_ids.append(comment.id)
+        scanned_ids: list[str] = []  # ordered newest-first as we encounter them
+        comments: list[CommentData] = []
+        skipped_count = 0
+        scanned_count = 0
+        found_seen = not seen_ids_set  # if no known IDs, nothing to find
+        batch_found_seen = False
+        listing_exhausted = True
 
-        # Check if this comment is already known — either in our cache or saved.
-        already_seen = comment.id in seen_ids_set or comment.saved
-        if already_seen:
-            batch_found_seen = True
+        for comment in subreddit.comments(limit=None):
+            scanned_count += 1
+            if scanned_count % 50 == 0:
+                activity.heartbeat(f"Scanned {scanned_count} comments")
 
-        # At page boundaries (every 100 comments), decide whether to stop after
-        # evaluating the current comment. This avoids dropping the boundary
-        # comment when it is unseen but another comment in the same page was seen.
-        should_stop_after_current = scanned_count % 100 == 0 and batch_found_seen
+            scanned_ids.append(comment.id)
 
-        if not already_seen:
-            # Skip if not on a bot submission
-            submission_id = comment.link_id[3:]
-            if submission_id in bot_submissions:
-                cached_submission = bot_submissions[submission_id]
+            # Check if this comment is already known — either in our cache or saved.
+            already_seen = comment.id in seen_ids_set or comment.saved
+            if already_seen:
+                batch_found_seen = True
 
-                # Process only comments on unlocked submissions with valid authors.
-                if (
-                    not cached_submission.locked
-                    and comment.banned_by is None
-                    and should_process_redditor(comment.author, bot_user)
-                ):
-                    comment_body_lower = comment.body.lower()
+            # At page boundaries (every 100 comments), decide whether to stop
+            # after evaluating the current comment.
+            should_stop_after_current = scanned_count % 100 == 0 and batch_found_seen
 
-                    # Check if this is the current stickied thread
-                    is_stickied = cached_submission.stickied
+            if not already_seen:
+                submission_id = comment.link_id[3:]
+                if submission_id in bot_submissions:
+                    cached_submission = bot_submissions[submission_id]
 
-                    # Filter logic to avoid unnecessary child workflows
-                    if comment.is_root:
-                        # Root comments are never confirmations — skip entirely.
-                        # Never mark as saved: the saved flag on root comments
-                        # is reserved to indicate "trade confirmed".
-                        pass
-                    else:
-                        # Non-root comments: only process if they contain "confirmed" or "approved"
-                        if (
-                            "confirmed" not in comment_body_lower
-                            and "approved" not in comment_body_lower
-                        ):
-                            skipped_count += 1
+                    if (
+                        not cached_submission.locked
+                        and comment.banned_by is None
+                        and should_process_redditor(comment.author, bot_user)
+                    ):
+                        comment_body_lower = comment.body.lower()
+                        is_stickied = cached_submission.stickied
+
+                        if comment.is_root:
+                            pass
                         else:
-                            serialized_comment = serialize_comment(comment)
-                            serialized_comment.submission_stickied = is_stickied
-                            comments.append(serialized_comment)
+                            if (
+                                "confirmed" not in comment_body_lower
+                                and "approved" not in comment_body_lower
+                            ):
+                                skipped_count += 1
+                            else:
+                                serialized_comment = serialize_comment(comment)
+                                serialized_comment.submission_stickied = is_stickied
+                                comments.append(serialized_comment)
 
-        if should_stop_after_current:
+            if should_stop_after_current:
+                found_seen = True
+                listing_exhausted = False
+                break
+
+        if batch_found_seen:
             found_seen = True
             listing_exhausted = False
-            break
 
-    # Handle final partial batch (< 100 comments) where we found a seen comment.
-    if batch_found_seen:
-        found_seen = True
-        listing_exhausted = False
+        # Update internal watermark with newly scanned IDs.
+        seen_ids_set.update(scanned_ids)
 
-    activity.logger.info(
-        (
-            "Fetched %d comments for processing, skipped %d from subreddit, "
-            "scanned=%d, found_seen=%s, listing_exhausted=%s"
-        ),
-        len(comments),
-        skipped_count,
-        scanned_count,
-        found_seen,
-        listing_exhausted,
-    )
-    new_ids = [sid for sid in scanned_ids if sid not in seen_ids_set]
-    return FetchCommentsResult(
-        comments=comments,
-        scanned_ids=new_ids,
-        found_seen=found_seen,
-        listing_exhausted=listing_exhausted,
-        scanned_count=scanned_count,
-    )
+        # Track IDs new relative to the workflow's original watermark.
+        new_for_workflow = [
+            sid for sid in scanned_ids
+            if sid not in original_seen_set and sid not in accumulated_new_set
+        ]
+        accumulated_new_set.update(new_for_workflow)
+        # Prepend: this iteration's IDs are newer than previous iterations'.
+        accumulated_new_ids = new_for_workflow + accumulated_new_ids
+
+        # Check for possible watermark gap.
+        possible_gap = (
+            had_initial_watermark
+            and not found_seen
+            and listing_exhausted
+            and scanned_count >= _WATERMARK_GAP_SCAN_THRESHOLD
+        )
+
+        if comments or possible_gap:
+            activity.logger.info(
+                "Fetched %d comments for processing, skipped %d, "
+                "scanned=%d, found_seen=%s, listing_exhausted=%s, possible_gap=%s",
+                len(comments),
+                skipped_count,
+                scanned_count,
+                found_seen,
+                listing_exhausted,
+                possible_gap,
+            )
+            return FetchCommentsResult(
+                comments=comments,
+                scanned_ids=accumulated_new_ids,
+                found_seen=found_seen,
+                listing_exhausted=listing_exhausted,
+                scanned_count=scanned_count,
+            )
+
+        # No new comments and no gap — adaptive backoff and poll again.
+        poll_delay = min(poll_delay * 2, _MAX_POLL_DELAY)
+        time.sleep(poll_delay)
 
 
 @activity.defn
