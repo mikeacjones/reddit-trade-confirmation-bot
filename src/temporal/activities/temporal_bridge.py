@@ -5,7 +5,6 @@ from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.service import RPCError
 
-from ..workflows.comment_processing import CommentPollingWorkflow
 from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
 
 from ..shared import (
@@ -60,6 +59,10 @@ async def query_polling_submissions() -> ActiveSubmissions:
     client = _get_temporal_client()
 
     try:
+        # Lazy import to avoid circular dependency:
+        # comment_processing -> activities/__init__ -> temporal_bridge -> comment_processing
+        from ..workflows.comment_processing import CommentPollingWorkflow  # noqa: E402
+
         handle = client.get_workflow_handle(f"poll-{SUBREDDIT_NAME}")
         result = await handle.query(CommentPollingWorkflow.get_submission_ids)
         return ActiveSubmissions(
