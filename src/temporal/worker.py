@@ -31,15 +31,18 @@ from temporalio.worker.workflow_sandbox import (
 
 from temporal.activities import (
     create_monthly_post,
-    poll_new_comments,
+    fetch_active_submission_ids,
     get_user_flair,
-    lock_previous_submissions,
+    lock_submission,
     mark_comment_saved,
+    poll_new_comments,
+    query_polling_submissions,
     reply_to_comment,
     request_flair_increment,
     send_pushover_notification,
     set_user_flair,
-    unsticky_previous_post,
+    sticky_submission,
+    unsticky_submission,
     validate_confirmation,
 )
 from temporal.activities.temporal_bridge import set_temporal_client
@@ -47,7 +50,6 @@ from temporal.shared import BUILD_ID, DEPLOYMENT_NAME, SUBREDDIT_NAME, TASK_QUEU
 from temporal.workflows import (
     CommentPollingWorkflow,
     FlairCoordinatorWorkflow,
-    LockSubmissionsWorkflow,
     MonthlyPostWorkflow,
     ProcessConfirmationWorkflow,
 )
@@ -101,7 +103,6 @@ async def main():
             ProcessConfirmationWorkflow,
             FlairCoordinatorWorkflow,
             MonthlyPostWorkflow,
-            LockSubmissionsWorkflow,
         ],
         activities=[
             poll_new_comments,
@@ -112,8 +113,11 @@ async def main():
             mark_comment_saved,
             reply_to_comment,
             create_monthly_post,
-            unsticky_previous_post,
-            lock_previous_submissions,
+            fetch_active_submission_ids,
+            sticky_submission,
+            unsticky_submission,
+            lock_submission,
+            query_polling_submissions,
             send_pushover_notification,
         ],
         activity_executor=activity_executor,

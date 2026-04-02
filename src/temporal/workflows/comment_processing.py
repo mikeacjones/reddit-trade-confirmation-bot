@@ -11,6 +11,7 @@ from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePoli
 
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
+from ..activities import submissions as submission_activities
 from ..activities import temporal_bridge as bridge_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
@@ -54,11 +55,16 @@ class CommentPollingWorkflow:
 
     Delegates polling to a long-running activity that loops internally,
     heartbeating and sleeping between iterations.  The activity only returns
-    when new confirming comments are found (or a watermark gap is detected).
+    when actionable comments are found (or a watermark gap is detected).
 
-    The workflow remains responsive to signals (stop, invalidate_submissions)
+    Tracks current and previous month submission IDs in workflow state.
+    These are set via the ``set_current_submission`` signal (sent by
+    ``MonthlyPostWorkflow``) and passed to the polling activity so it
+    knows which submissions to scan.
+
+    The workflow remains responsive to signals (stop, set_current_submission)
     by using ``start_activity`` + ``wait_condition``.  When a signal arrives
-    the running activity is cancelled and, if appropriate, restarted.
+    the running activity is cancelled and restarted with updated state.
     """
 
     # Alert when we scan deep into the listing and still cannot find the watermark.
@@ -69,7 +75,9 @@ class CommentPollingWorkflow:
         self._seen_ids: list[str] = []
         self._processed_count = 0
         self._last_gap_alert_seen_ids_len: int = 0
-        self._refresh_submissions = False
+        self._current_submission_id: str | None = None
+        self._previous_submission_id: str | None = None
+        self._submission_changed = False
 
     @workflow.signal
     def stop(self) -> None:
@@ -77,9 +85,15 @@ class CommentPollingWorkflow:
         self._should_stop = True
 
     @workflow.signal
-    def invalidate_submissions(self) -> None:
-        """Signal to refresh the bot submissions cache on the next poll."""
-        self._refresh_submissions = True
+    def set_current_submission(self, submission_id: str) -> None:
+        """Signal that a new monthly submission has been created.
+
+        Shifts the current submission to previous and sets the new one.
+        Triggers the polling activity to restart with updated submission IDs.
+        """
+        self._previous_submission_id = self._current_submission_id
+        self._current_submission_id = submission_id
+        self._submission_changed = True
 
     @workflow.query
     def get_status(self) -> dict:
@@ -91,27 +105,60 @@ class CommentPollingWorkflow:
             "seen_ids_count": len(self._seen_ids),
         }
 
+    @workflow.query
+    def get_submission_ids(self) -> dict:
+        """Query the current and previous submission IDs."""
+        return {
+            "current_submission_id": self._current_submission_id,
+            "previous_submission_id": self._previous_submission_id,
+        }
+
     @workflow.run
     async def run(
         self,
         seen_ids: list[str] | None = None,
-        _poll_delay: float = 0,  # accepted for backwards compat with in-flight continue-as-new
+        current_submission_id: str | None = None,
+        previous_submission_id: str | None = None,
     ) -> dict:
         """Run the comment polling loop.
 
         Args:
             seen_ids: Recently-seen comment IDs (carried over from continue-as-new).
+            current_submission_id: Current month's submission (from continue-as-new).
+            previous_submission_id: Previous month's submission (from continue-as-new).
 
         Returns:
             Final status when stopped.
         """
         self._seen_ids = seen_ids or []
+        self._current_submission_id = current_submission_id
+        self._previous_submission_id = previous_submission_id
         workflow.logger.info("Starting comment polling for subreddit")
+
+        # Bootstrap: discover submission IDs from Reddit on first run.
+        if self._current_submission_id is None:
+            result = await workflow.execute_activity(
+                submission_activities.fetch_active_submission_ids,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=REDDIT_RETRY_POLICY,
+            )
+            self._current_submission_id = result.current_submission_id
+            self._previous_submission_id = result.previous_submission_id
+            workflow.logger.info(
+                "Bootstrapped submissions: current=%s, previous=%s",
+                self._current_submission_id,
+                self._previous_submission_id,
+            )
 
         while not self._should_stop:
             had_seen_ids = len(self._seen_ids) > 0
-            refresh = self._refresh_submissions
-            self._refresh_submissions = False
+            self._submission_changed = False
+
+            # Build list of active submission IDs (filtering None).
+            active_submission_ids = [
+                sid for sid in [self._current_submission_id, self._previous_submission_id]
+                if sid is not None
+            ]
 
             # Start long-running poll activity (non-blocking).
             activity_handle = workflow.start_activity(
@@ -119,7 +166,8 @@ class CommentPollingWorkflow:
                 args=[
                     FetchCommentsInput(
                         seen_ids=self._seen_ids,
-                        refresh_submissions=refresh,
+                        active_submission_ids=active_submission_ids,
+                        current_submission_id=self._current_submission_id or "",
                     )
                 ],
                 start_to_close_timeout=timedelta(hours=24),
@@ -131,12 +179,12 @@ class CommentPollingWorkflow:
             await workflow.wait_condition(
                 lambda: activity_handle.done()
                 or self._should_stop
-                or self._refresh_submissions
+                or self._submission_changed
             )
 
             if not activity_handle.done():
                 # A signal arrived before the activity finished — cancel and
-                # let the loop re-evaluate (stop or restart with refresh).
+                # let the loop re-evaluate (stop or restart with new IDs).
                 activity_handle.cancel()
                 try:
                     await activity_handle
@@ -188,8 +236,29 @@ class CommentPollingWorkflow:
             elif found_seen:
                 self._last_gap_alert_seen_ids_len = 0
 
-            # Process each comment via child workflow (fire-and-forget)
+            # Route comments: reject root comments on old threads, process
+            # non-root confirming comments on current or previous.
             for comment_data in comments:
+                # Root comment on previous submission → wrong thread rejection.
+                if (
+                    comment_data.is_root
+                    and comment_data.submission_id != self._current_submission_id
+                ):
+                    await workflow.execute_activity(
+                        comment_activities.reply_to_comment,
+                        args=[
+                            ReplyToCommentInput(
+                                comment_id=comment_data.id,
+                                template_name="old_confirmation_thread",
+                            )
+                        ],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=REDDIT_RETRY_POLICY,
+                    )
+                    self._processed_count += 1
+                    continue
+
+                # Non-root confirming comment → process via child workflow.
                 workflow_id = f"process-{comment_data.id}"
 
                 try:
@@ -215,7 +284,11 @@ class CommentPollingWorkflow:
             ):
                 workflow.logger.info("Continuing as new")
                 workflow.continue_as_new(
-                    args=[self._seen_ids],
+                    args=[
+                        self._seen_ids,
+                        self._current_submission_id,
+                        self._previous_submission_id,
+                    ],
                     initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
                 )
 

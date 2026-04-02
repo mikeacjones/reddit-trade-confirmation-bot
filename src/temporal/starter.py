@@ -13,8 +13,8 @@ Usage:
     # Manually trigger monthly post
     python -m temporal.starter create-monthly
 
-    # Manually trigger lock submissions
-    python -m temporal.starter lock-submissions
+    # Delete stale lock-submissions schedule (one-time cleanup)
+    python -m temporal.starter delete-lock-schedule
 
 Environment variables:
     TEMPORAL_HOST: Temporal server address (default: localhost:7233)
@@ -40,7 +40,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
-    LockSubmissionsWorkflow,
     MonthlyPostWorkflow,
 )
 
@@ -90,35 +89,6 @@ async def setup_schedules():
     except ScheduleAlreadyRunningError:
         logger.info(f"Schedule monthly-post-schedule-{SUBREDDIT_NAME} already exists")
 
-    # Lock submissions schedule - 2nd of each month at 00:00 UTC
-    try:
-        await client.create_schedule(
-            f"lock-submissions-schedule-{SUBREDDIT_NAME}",
-            Schedule(
-                action=ScheduleActionStartWorkflow(
-                    LockSubmissionsWorkflow.run,
-                    id=f"lock-submissions-{SUBREDDIT_NAME}",
-                    task_queue=TASK_QUEUE,
-                ),
-                spec=ScheduleSpec(
-                    calendars=[
-                        ScheduleCalendarSpec(
-                            day_of_month=[ScheduleRange(start=2)],
-                            hour=[ScheduleRange(start=0)],
-                            minute=[ScheduleRange(start=0)],
-                        )
-                    ]
-                ),
-            ),
-        )
-        logger.info(
-            f"Created schedule: lock-submissions-schedule-{SUBREDDIT_NAME} (2nd of month at 00:00 UTC)"
-        )
-    except ScheduleAlreadyRunningError:
-        logger.info(
-            f"Schedule lock-submissions-schedule-{SUBREDDIT_NAME} already exists"
-        )
-
     logger.info("Schedules setup complete")
 
 
@@ -161,21 +131,17 @@ async def trigger_monthly_post():
     return result
 
 
-async def trigger_lock_submissions():
-    """Manually trigger the lock submissions workflow."""
+async def delete_lock_schedule():
+    """Delete the stale lock-submissions schedule (one-time cleanup)."""
     client = await get_client()
 
-    logger.info("Triggering lock submissions workflow...")
-
-    handle = await client.start_workflow(
-        LockSubmissionsWorkflow.run,
-        id=f"lock-submissions-manual-{SUBREDDIT_NAME}",
-        task_queue=TASK_QUEUE,
-    )
-
-    result = await handle.result()
-    logger.info(f"Lock submissions result: {result}")
-    return result
+    schedule_id = f"lock-submissions-schedule-{SUBREDDIT_NAME}"
+    try:
+        handle = client.get_schedule_handle(schedule_id)
+        await handle.delete()
+        logger.info(f"Deleted schedule: {schedule_id}")
+    except Exception as e:
+        logger.info(f"Schedule {schedule_id} not found or already deleted: {e}")
 
 
 async def show_status():
@@ -197,6 +163,11 @@ async def show_status():
         status = await handle.query(CommentPollingWorkflow.get_status)
         logger.info(f"  Processed comments: {status['processed_count']}")
         logger.info(f"  Last seen ID: {status['last_seen_id']}")
+
+        # Query for submission IDs
+        subs = await handle.query(CommentPollingWorkflow.get_submission_ids)
+        logger.info(f"  Current submission: {subs['current_submission_id']}")
+        logger.info(f"  Previous submission: {subs['previous_submission_id']}")
     except Exception as e:
         logger.info(f"Polling workflow not found: {e}")
 
@@ -213,11 +184,11 @@ def print_usage():
 Usage: python -m temporal.starter <command>
 
 Commands:
-    setup           Set up scheduled workflows (run once)
-    start-polling   Start polling for comments on current submission
-    create-monthly  Manually trigger monthly post creation
-    lock-submissions Manually trigger lock submissions
-    status          Show status of running workflows
+    setup               Set up scheduled workflows (run once)
+    start-polling       Start polling for comments on current submission
+    create-monthly      Manually trigger monthly post creation
+    delete-lock-schedule  Delete stale lock-submissions schedule (one-time cleanup)
+    status              Show status of running workflows
 
 Make sure the worker is running before executing commands:
     python -m temporal.worker
@@ -238,8 +209,8 @@ async def main():
         await start_polling()
     elif command == "create-monthly":
         await trigger_monthly_post()
-    elif command == "lock-submissions":
-        await trigger_lock_submissions()
+    elif command == "delete-lock-schedule":
+        await delete_lock_schedule()
     elif command == "status":
         await show_status()
     else:
