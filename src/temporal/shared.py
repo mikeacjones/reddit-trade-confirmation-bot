@@ -91,7 +91,6 @@ class CommentData:
     parent_id: str
     submission_id: str
     saved: bool
-    submission_stickied: bool | None = None
 
 
 @dataclass
@@ -139,11 +138,34 @@ class FlairIncrementResult:
 
 
 @dataclass
+class ActiveSubmissions:
+    """Current and previous month's submission IDs tracked by the polling workflow."""
+
+    current_submission_id: str | None = None
+    previous_submission_id: str | None = None
+
+
+@dataclass
+class SubmissionInput:
+    """Input for single-submission operations (sticky, unsticky, lock)."""
+
+    submission_id: str
+
+
+@dataclass
+class CreateMonthlyPostInput:
+    """Input for creating a new monthly confirmation post."""
+
+    previous_submission_id: str | None = None
+
+
+@dataclass
 class FetchCommentsInput:
-    """Input for fetching new comments."""
+    """Input for the long-running comment polling activity."""
 
     seen_ids: list[str] = field(default_factory=list)
-    refresh_submissions: bool = False
+    active_submission_ids: list[str] = field(default_factory=list)
+    current_submission_id: str = ""
 
 
 @dataclass

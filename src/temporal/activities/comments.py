@@ -22,9 +22,6 @@ from .reddit import (
     should_process_redditor,
 )
 
-# Module-level submission cache — invalidated via signal from MonthlyPostWorkflow.
-_bot_submissions: dict | None = None
-
 # Adaptive polling bounds (seconds)
 _MIN_POLL_DELAY = 1.0
 _MAX_POLL_DELAY = 3.0
@@ -38,28 +35,19 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     """Long-running activity that polls for new comments.
 
     Runs an internal loop, heartbeating and sleeping between iterations.
-    Returns only when new confirming comments are found or a watermark gap
+    Returns only when actionable comments are found or a watermark gap
     is detected.  The workflow can cancel this activity via signals.
 
-    The workflow passes a small watermark of recent seen IDs for scan
-    termination.  This activity maintains its own internal watermark across
-    iterations and returns new IDs for the workflow to merge.
+    Filters comments to only those on active submissions (current + previous
+    month).  Root comments on the previous submission are included so the
+    workflow can reject them with an "old thread" message.
     """
-    global _bot_submissions
-
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
     subreddit = get_subreddit(reddit)
 
-    activity.heartbeat("Fetching bot submissions")
-
-    # Use cached submissions unless this is the first call or a refresh was requested.
-    if _bot_submissions is None or input.refresh_submissions:
-        _bot_submissions = {s.id: s for s in bot_user.submissions.new(limit=10)}
-        if input.refresh_submissions:
-            activity.logger.info("Refreshed bot submissions cache")
-
-    bot_submissions = _bot_submissions
+    active_ids = set(input.active_submission_ids)
+    current_submission_id = input.current_submission_id
 
     # Internal watermark tracking (evolves across poll iterations).
     original_seen_set = frozenset(input.seen_ids) if input.seen_ids else frozenset()
@@ -101,19 +89,20 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
 
             if not already_seen:
                 submission_id = comment.link_id[3:]
-                if submission_id in bot_submissions:
-                    cached_submission = bot_submissions[submission_id]
-
+                if submission_id in active_ids:
                     if (
-                        not cached_submission.locked
-                        and comment.banned_by is None
+                        comment.banned_by is None
                         and should_process_redditor(comment.author, bot_user)
                     ):
                         comment_body_lower = comment.body.lower()
-                        is_stickied = cached_submission.stickied
 
                         if comment.is_root:
-                            pass
+                            # Root comments on current submission are trade
+                            # listings — skip. Root comments on previous
+                            # submission are included so the workflow can
+                            # reject them with an "old thread" message.
+                            if submission_id != current_submission_id:
+                                comments.append(serialize_comment(comment))
                         else:
                             if (
                                 "confirmed" not in comment_body_lower
@@ -121,9 +110,7 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
                             ):
                                 skipped_count += 1
                             else:
-                                serialized_comment = serialize_comment(comment)
-                                serialized_comment.submission_stickied = is_stickied
-                                comments.append(serialized_comment)
+                                comments.append(serialize_comment(comment))
 
             if should_stop_after_current:
                 found_seen = True

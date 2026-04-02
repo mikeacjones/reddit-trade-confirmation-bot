@@ -3,10 +3,18 @@
 from temporalio import activity
 from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.service import RPCError
 
+from ..workflows.comment_processing import CommentPollingWorkflow
 from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
 
-from ..shared import SUBREDDIT_NAME, TASK_QUEUE, FlairIncrementRequest, FlairIncrementResult
+from ..shared import (
+    ActiveSubmissions,
+    FlairIncrementRequest,
+    FlairIncrementResult,
+    SUBREDDIT_NAME,
+    TASK_QUEUE,
+)
 
 _temporal_client: Client | None = None
 
@@ -41,3 +49,23 @@ async def request_flair_increment(request: FlairIncrementRequest) -> FlairIncrem
         request,
         start_workflow_operation=start_op,
     )
+
+
+@activity.defn
+async def query_polling_submissions() -> ActiveSubmissions:
+    """Query the polling workflow for its current/previous submission IDs.
+
+    Returns ActiveSubmissions(None, None) if the polling workflow is not running.
+    """
+    client = _get_temporal_client()
+
+    try:
+        handle = client.get_workflow_handle(f"poll-{SUBREDDIT_NAME}")
+        result = await handle.query(CommentPollingWorkflow.get_submission_ids)
+        return ActiveSubmissions(
+            current_submission_id=result.get("current_submission_id"),
+            previous_submission_id=result.get("previous_submission_id"),
+        )
+    except RPCError:
+        activity.logger.warning("Polling workflow not reachable, returning empty submissions")
+        return ActiveSubmissions()

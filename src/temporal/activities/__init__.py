@@ -10,10 +10,12 @@ from .flair import get_user_flair, set_user_flair
 from .notifications import send_pushover_notification
 from .submissions import (
     create_monthly_post,
-    lock_previous_submissions,
-    unsticky_previous_post,
+    fetch_active_submission_ids,
+    lock_submission,
+    sticky_submission,
+    unsticky_submission,
 )
-from .temporal_bridge import request_flair_increment
+from .temporal_bridge import query_polling_submissions, request_flair_increment
 
 __all__ = [
     # Comments
@@ -27,8 +29,12 @@ __all__ = [
     "request_flair_increment",
     # Submissions
     "create_monthly_post",
-    "unsticky_previous_post",
-    "lock_previous_submissions",
+    "fetch_active_submission_ids",
+    "sticky_submission",
+    "unsticky_submission",
+    "lock_submission",
+    # Bridge
+    "query_polling_submissions",
     # Notifications
     "send_pushover_notification",
 ]
