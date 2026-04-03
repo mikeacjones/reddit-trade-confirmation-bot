@@ -2,13 +2,9 @@
 
 from temporalio import activity
 
-from ..shared import (
-    FLAIR_PATTERN,
-    FLAIR_TEMPLATE_PATTERN,
-    FlairUpdateResult,
-    SetUserFlairInput,
-    UserFlairResult,
-)
+from bot.rules import FLAIR_TEMPLATE_PATTERN, format_flair_from_template, parse_trade_count
+
+from ..shared import FlairUpdateResult, SetUserFlairInput, UserFlairResult
 from .reddit import get_reddit_client, get_subreddit
 
 _flair_templates: dict | None = None
@@ -62,15 +58,6 @@ def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | No
     return None
 
 
-def _format_flair(flair_template: str, count: int) -> str:
-    """Format flair text with trade count."""
-    match = FLAIR_TEMPLATE_PATTERN.search(flair_template)
-    if not match:
-        return flair_template
-    start, end = match.span(1)
-    return flair_template[:start] + str(count) + flair_template[end:]
-
-
 def apply_flair(username: str, count: int, subreddit) -> str | None:
     """Set user's flair to specific trade count. Returns new flair text or None."""
     template = _get_flair_template(count, username, subreddit)
@@ -78,7 +65,7 @@ def apply_flair(username: str, count: int, subreddit) -> str | None:
         activity.logger.warning("No flair template found for %d trades", count)
         return None
 
-    new_flair_text = _format_flair(template["template"], count)
+    new_flair_text = format_flair_from_template(template["template"], count)
     subreddit.flair.set(username, text=new_flair_text, flair_template_id=template["id"])
     return new_flair_text
 
@@ -101,10 +88,7 @@ def get_user_flair(username: str) -> UserFlairResult:
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count: int | None = 0
-    if flair_text:
-        match = FLAIR_PATTERN.search(flair_text)
-        trade_count = int(match.group(1)) if match else None
+    trade_count = parse_trade_count(flair_text)
 
     return UserFlairResult(
         username=username,

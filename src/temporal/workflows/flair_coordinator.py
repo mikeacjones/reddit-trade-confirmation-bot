@@ -52,6 +52,8 @@ class FlairCoordinatorWorkflow:
 
         await workflow.wait_condition(
             lambda: (
+                self._should_continue_as_new
+                or
                 workflow.info().is_continue_as_new_suggested()
                 or workflow.info().is_target_worker_deployment_version_changed()
             )

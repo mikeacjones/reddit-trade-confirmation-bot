@@ -9,6 +9,8 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
+from bot.rules import build_confirmation_key
+
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
@@ -367,7 +369,7 @@ class ProcessConfirmationWorkflow:
             assert parent_author is not None and confirmer is not None
 
             parent_comment_id = validation.parent_comment_id
-            confirmation_key = f"{parent_comment_id}:{confirmer}".lower()
+            confirmation_key = build_confirmation_key(parent_comment_id, confirmer)
 
             parent_increment = workflow.start_activity(
                 bridge_activities.request_flair_increment,
