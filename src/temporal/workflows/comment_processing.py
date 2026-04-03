@@ -1,7 +1,6 @@
 """Comment processing workflows for trade confirmation."""
 
 import asyncio
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
@@ -9,7 +8,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
-from bot.rules import build_confirmation_key
+from bot.services import ConfirmationService
 
 from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
@@ -22,7 +21,6 @@ from ..shared import (
     WATERMARK_IDS_MAX,
     CommentData,
     FetchCommentsInput,
-    FlairIncrementRequest,
     ReplyToCommentInput,
 )
 
@@ -335,62 +333,40 @@ class ProcessConfirmationWorkflow:
 
             # Handle validation failure with template response
             if not validation.valid:
-                reason = validation.reason
-                if reason:
+                reply_input = ConfirmationService.build_invalid_reply(
+                    comment_data, validation
+                )
+                if reply_input is not None:
                     await workflow.execute_activity(
                         comment_activities.reply_to_comment,
-                        args=[
-                            ReplyToCommentInput(
-                                comment_id=comment_id,
-                                template_name=reason,
-                                format_args={
-                                    **asdict(comment_data),
-                                    "parent_author": validation.parent_author,
-                                    "parent_comment_id": validation.parent_comment_id,
-                                },
-                            )
-                        ],
+                        args=[reply_input],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
                     await self._save(comment_id)
-                    return {
-                        "status": "rejected",
-                        "reason": reason,
-                        "comment_id": comment_id,
-                    }
+                    return ConfirmationService.build_rejected_result(
+                        comment_id, validation.reason
+                    )
 
                 await self._save(comment_id)
-                return {"status": "skipped", "comment_id": comment_id}
+                return ConfirmationService.build_skipped_result(comment_id)
 
             # Valid confirmation - request coordinated flair updates
-            parent_author = validation.parent_author
-            confirmer = validation.confirmer
-            assert parent_author is not None and confirmer is not None
-
             parent_comment_id = validation.parent_comment_id
-            confirmation_key = build_confirmation_key(parent_comment_id, confirmer)
+            parent_request, confirmer_request = (
+                ConfirmationService.build_flair_increment_requests(validation)
+            )
 
             parent_increment = workflow.start_activity(
                 bridge_activities.request_flair_increment,
-                args=[
-                    FlairIncrementRequest(
-                        username=parent_author,
-                        request_id=f"{confirmation_key}:parent",
-                    )
-                ],
+                args=[parent_request],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
             confirmer_increment = workflow.start_activity(
                 bridge_activities.request_flair_increment,
-                args=[
-                    FlairIncrementRequest(
-                        username=confirmer,
-                        request_id=f"{confirmation_key}:confirmer",
-                    )
-                ],
+                args=[confirmer_request],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
@@ -401,25 +377,14 @@ class ProcessConfirmationWorkflow:
             if parent_comment_id:
                 await self._save(parent_comment_id)
 
-            # Use reply_to_comment_id if available (for mod approvals), otherwise comment_id
-            reply_comment_id = validation.reply_to_comment_id or comment_id
             await workflow.execute_activity(
                 comment_activities.reply_to_comment,
                 args=[
-                    ReplyToCommentInput(
-                        comment_id=reply_comment_id,
-                        template_name="trade_confirmation",
-                        format_args={
-                            "comment_id": reply_comment_id,
-                            "confirmer": confirmer,
-                            "parent_author": parent_author,
-                            "old_comment_flair": confirmer_result.old_flair
-                            or "unknown",
-                            "new_comment_flair": confirmer_result.new_flair
-                            or "unknown",
-                            "old_parent_flair": parent_result.old_flair or "unknown",
-                            "new_parent_flair": parent_result.new_flair or "unknown",
-                        },
+                    ConfirmationService.build_confirmation_reply(
+                        comment_id,
+                        validation,
+                        parent_result,
+                        confirmer_result,
                     )
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
@@ -433,6 +398,9 @@ class ProcessConfirmationWorkflow:
                 comment_data.created_utc, tz=timezone.utc
             )
             elapsed = workflow.now() - comment_created
+            parent_author = validation.parent_author
+            confirmer = validation.confirmer
+            assert parent_author is not None and confirmer is not None
             workflow.logger.info(
                 "Confirmed trade: %s (%s) <-> %s (%s) — %.1fs from comment to reply",
                 parent_author,
@@ -442,14 +410,12 @@ class ProcessConfirmationWorkflow:
                 elapsed.total_seconds(),
             )
 
-            return {
-                "status": "confirmed",
-                "comment_id": comment_id,
-                "parent_author": parent_author,
-                "confirmer": confirmer,
-                "parent_new_flair": parent_result.new_flair,
-                "confirmer_new_flair": confirmer_result.new_flair,
-            }
+            return ConfirmationService.build_confirmed_result(
+                comment_id,
+                validation,
+                parent_result,
+                confirmer_result,
+            )
         except Exception as exc:
             if _is_control_flow_stop_exception(exc):
                 workflow.logger.info(
