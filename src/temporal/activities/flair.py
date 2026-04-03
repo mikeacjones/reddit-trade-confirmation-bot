@@ -7,7 +7,7 @@ from temporalio.common import WorkflowIDConflictPolicy
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE
 from bot.models import FlairIncrementRequest, FlairIncrementResult, FlairUpdateResult, SetUserFlairInput, UserFlairResult
 from bot.reddit import get_reddit_client, get_subreddit
-from bot.rules import FLAIR_TEMPLATE_PATTERN, format_flair_from_template, parse_trade_count
+from bot.rules import FLAIR_TEMPLATE_PATTERN, find_flair_template, format_flair_from_template, parse_trade_count
 
 _flair_templates: dict | None = None
 _moderators: list | None = None
@@ -51,13 +51,7 @@ def _load_moderators(subreddit) -> list:
 def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | None:
     """Get appropriate flair template for trade count."""
     templates = _load_flair_templates(subreddit)
-    moderators = _load_moderators(subreddit)
-
-    for (min_trades, max_trades), template in templates.items():
-        if min_trades <= trade_count <= max_trades:
-            if template["mod_only"] == (username in moderators):
-                return template
-    return None
+    return find_flair_template(templates, trade_count, is_moderator(username, subreddit))
 
 
 def apply_flair(username: str, count: int, subreddit) -> str | None:

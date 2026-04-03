@@ -9,11 +9,10 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE
-from bot.models import CommentData, FetchCommentsInput
+from bot.models import CommentData, FetchCommentsInput, FlairIncrementResult, ReplyToCommentInput
 from bot.services import ConfirmationService
 
 from ..activities import comments as comment_activities
-from ..activities import flair as flair_activities
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
 from ..shared import (
@@ -92,7 +91,7 @@ class CommentPollingWorkflow:
         self._submission_changed = True
 
     @workflow.query
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, str | int | None]:
         """Query the current status of the polling workflow."""
         return {
             "last_seen_id": self._seen_ids[0] if self._seen_ids else None,
@@ -102,7 +101,7 @@ class CommentPollingWorkflow:
         }
 
     @workflow.query
-    def get_submission_ids(self) -> dict:
+    def get_submission_ids(self) -> dict[str, str | None]:
         """Query the current and previous submission IDs."""
         return {
             "current_submission_id": self._current_submission_id,
@@ -115,7 +114,7 @@ class CommentPollingWorkflow:
         seen_ids: list[str] | None = None,
         current_submission_id: str | None = None,
         previous_submission_id: str | None = None,
-    ) -> dict:
+    ) -> dict[str, str | int | None]:
         """Run the comment polling loop.
 
         Args:
@@ -356,15 +355,17 @@ class ProcessConfirmationWorkflow:
             )
 
             parent_increment = workflow.start_activity(
-                flair_activities.request_flair_increment,
+                "request_flair_increment",
                 args=[parent_request],
+                result_type=FlairIncrementResult,
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
             confirmer_increment = workflow.start_activity(
-                flair_activities.request_flair_increment,
+                "request_flair_increment",
                 args=[confirmer_request],
+                result_type=FlairIncrementResult,
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
             )

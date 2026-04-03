@@ -34,6 +34,26 @@ class ValidationResult:
 
 
 @dataclass
+class ConfirmationContext:
+    """Pre-fetched parent/grandparent data for confirmation validation."""
+
+    parent_exists: bool
+    parent_is_banned: bool = False
+    parent_is_processable: bool = False
+    parent_author_name: str = ""
+    parent_id: str = ""
+    parent_is_root: bool = False
+    parent_is_saved: bool = False
+    parent_body_lower: str = ""
+    parent_body_html_lower: str = ""
+    is_moderator: bool = False
+    grandparent_exists: bool = False
+    grandparent_is_root: bool = False
+    grandparent_author_name: str = ""
+    grandparent_id: str = ""
+
+
+@dataclass
 class FlairUpdateResult:
     """Result of updating a user's flair."""
 
