@@ -61,8 +61,6 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     poll_delay = _MIN_POLL_DELAY
 
     while True:
-        activity.heartbeat(f"Polling (delay={poll_delay:.1f}s, watermark={len(seen_ids_set)})")
-
         scanned_ids: list[str] = []  # ordered newest-first as we encounter them
         comments: list[CommentData] = []
         skipped_count = 0
@@ -72,10 +70,12 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
         listing_exhausted = True
 
         for comment in subreddit.comments(limit=None):
-            scanned_count += 1
-            if scanned_count % 50 == 0:
+            if (
+                scanned_count % 100 == 0
+            ):  # changing to 100 so we heartbeat on each page - under the hood, praw is paging 100 comments at a time
                 activity.heartbeat(f"Scanned {scanned_count} comments")
 
+            scanned_count += 1
             scanned_ids.append(comment.id)
 
             # Check if this comment is already known — either in our cache or saved.
@@ -90,9 +90,8 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
             if not already_seen:
                 submission_id = comment.link_id[3:]
                 if submission_id in active_ids:
-                    if (
-                        comment.banned_by is None
-                        and should_process_redditor(comment.author, bot_user)
+                    if comment.banned_by is None and should_process_redditor(
+                        comment.author, bot_user
                     ):
                         comment_body_lower = comment.body.lower()
 
@@ -126,7 +125,8 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
 
         # Track IDs new relative to the workflow's original watermark.
         new_for_workflow = [
-            sid for sid in scanned_ids
+            sid
+            for sid in scanned_ids
             if sid not in original_seen_set and sid not in accumulated_new_set
         ]
         accumulated_new_set.update(new_for_workflow)
@@ -269,7 +269,9 @@ def reply_to_comment(input: ReplyToCommentInput) -> str:
     comment = reddit.comment(id=input.comment_id)
 
     if input.format_args:
-        reply_text = TemplateManager.format(input.template_name, subreddit, **input.format_args)
+        reply_text = TemplateManager.format(
+            input.template_name, subreddit, **input.format_args
+        )
     else:
         reply_text = TemplateManager.load(input.template_name, subreddit)
 
