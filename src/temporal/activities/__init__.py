@@ -6,7 +6,7 @@ from .comments import (
     reply_to_comment,
     validate_confirmation,
 )
-from .flair import get_user_flair, set_user_flair
+from .flair import get_user_flair, request_flair_increment, set_user_flair
 from .notifications import send_pushover_notification
 from .submissions import (
     create_monthly_post,
@@ -15,7 +15,6 @@ from .submissions import (
     sticky_submission,
     unsticky_submission,
 )
-from .temporal_bridge import query_polling_submissions, request_flair_increment
 
 __all__ = [
     # Comments
@@ -33,8 +32,6 @@ __all__ = [
     "sticky_submission",
     "unsticky_submission",
     "lock_submission",
-    # Bridge
-    "query_polling_submissions",
     # Notifications
     "send_pushover_notification",
 ]

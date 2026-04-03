@@ -36,7 +36,6 @@ from temporal.activities import (
     lock_submission,
     mark_comment_saved,
     poll_new_comments,
-    query_polling_submissions,
     reply_to_comment,
     request_flair_increment,
     send_pushover_notification,
@@ -45,7 +44,6 @@ from temporal.activities import (
     unsticky_submission,
     validate_confirmation,
 )
-from temporal.activities.temporal_bridge import set_temporal_client
 from temporal.shared import BUILD_ID, DEPLOYMENT_NAME, SUBREDDIT_NAME, TASK_QUEUE
 from temporal.workflows import (
     CommentPollingWorkflow,
@@ -88,7 +86,6 @@ async def main():
 
     logger.info(f"Connecting to Temporal at {temporal_host}")
     client = await Client.connect(temporal_host, namespace="reddit-bots", runtime=runtime)
-    set_temporal_client(client)
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
     logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
@@ -117,7 +114,6 @@ async def main():
             sticky_submission,
             unsticky_submission,
             lock_submission,
-            query_polling_submissions,
             send_pushover_notification,
         ],
         activity_executor=activity_executor,

@@ -11,9 +11,9 @@ from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePoli
 from bot.services import ConfirmationService
 
 from ..activities import comments as comment_activities
+from ..activities import flair as flair_activities
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
-from ..activities import temporal_bridge as bridge_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
     SUBREDDIT_NAME,
@@ -359,14 +359,14 @@ class ProcessConfirmationWorkflow:
             )
 
             parent_increment = workflow.start_activity(
-                bridge_activities.request_flair_increment,
+                flair_activities.request_flair_increment,
                 args=[parent_request],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
             )
 
             confirmer_increment = workflow.start_activity(
-                bridge_activities.request_flair_increment,
+                flair_activities.request_flair_increment,
                 args=[confirmer_request],
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,

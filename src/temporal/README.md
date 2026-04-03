@@ -12,10 +12,9 @@ src/temporal/
 ├── starter.py             # CLI for schedule setup and workflow triggers
 ├── activities/
 │   ├── __init__.py
-│   ├── reddit.py          # Reddit client utilities (singleton praw instance)
+│   ├── reddit.py          # Compatibility wrapper around bot.reddit helpers
 │   ├── comments.py        # Comment fetching, validation, replies
-│   ├── flair.py           # User flair management
-│   ├── temporal_bridge.py # Temporal client bridge for coordinator updates
+│   ├── flair.py           # User flair management and coordinator update activity
 │   ├── submissions.py     # Monthly post creation, locking
 │   ├── notifications.py   # Pushover notifications
 │   └── helpers.py         # Template loading utilities
@@ -163,13 +162,6 @@ Locks old confirmation threads.
 |----------|-------------|
 | `get_user_flair(username)` | Get user's current flair text and trade count |
 | `set_user_flair(username, new_count)` | Set user's flair to exact trade count (idempotent) |
-
-### Temporal Bridge Activities (`temporal_bridge.py`)
-
-| Activity | Description |
-|----------|-------------|
-| `request_flair_increment(request)` | Update-with-start call into `FlairCoordinatorWorkflow` |
-| `start_confirmation_workflow(workflow_id, comment_data)` | Starts independent `ProcessConfirmationWorkflow` by ID |
 
 ### Submission Activities (`submissions.py`)
 
