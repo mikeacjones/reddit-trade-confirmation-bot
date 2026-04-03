@@ -54,18 +54,6 @@ def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | No
     return find_flair_template(templates, trade_count, is_moderator(username, subreddit))
 
 
-def apply_flair(username: str, count: int, subreddit) -> str | None:
-    """Set user's flair to specific trade count. Returns new flair text or None."""
-    template = _get_flair_template(count, username, subreddit)
-    if not template:
-        activity.logger.warning("No flair template found for %d trades", count)
-        return None
-
-    new_flair_text = format_flair_from_template(template["template"], count)
-    subreddit.flair.set(username, text=new_flair_text, flair_template_id=template["id"])
-    return new_flair_text
-
-
 def is_moderator(username: str, subreddit) -> bool:
     """Check if user is a moderator."""
     moderators = _load_moderators(subreddit)
@@ -140,7 +128,13 @@ def set_user_flair(input: SetUserFlairInput) -> FlairUpdateResult:
     subreddit = get_subreddit(reddit)
 
     # Set flair to the exact value specified by the workflow
-    new_flair = apply_flair(input.username, input.new_count, subreddit)
+    template = _get_flair_template(input.new_count, input.username, subreddit)
+    if not template:
+        activity.logger.warning("No flair template found for %d trades", input.new_count)
+        new_flair = None
+    else:
+        new_flair = format_flair_from_template(template["template"], input.new_count)
+        subreddit.flair.set(input.username, text=new_flair, flair_template_id=template["id"])
     activity.logger.info("u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair)
 
     return FlairUpdateResult(

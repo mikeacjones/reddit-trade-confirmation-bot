@@ -20,9 +20,9 @@ from bot.reddit import (
     should_process_redditor,
 )
 from bot.rules import (
-    classify_polled_comment,
     evaluate_confirmation,
     is_possible_watermark_gap,
+    should_include_comment,
 )
 
 from .flair import is_moderator
@@ -66,13 +66,11 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     # New IDs to return to the workflow (newest-first).
     # Built across poll iterations — each iteration prepends its batch.
     new_ids: list[str] = []
-    new_ids_set: set[str] = set()
 
     poll_delay = _MIN_POLL_DELAY
 
     while True:
         comments: list[CommentData] = []
-        skipped_count = 0
         scanned_count = 0
         hit_known = False
         stopped_early = False
@@ -100,16 +98,13 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
                     if comment.banned_by is None and should_process_redditor(
                         comment.author, bot_user
                     ):
-                        action = classify_polled_comment(
+                        if should_include_comment(
                             submission_id=submission_id,
                             current_submission_id=current_submission_id,
                             is_root=comment.is_root,
                             body_lower=comment.body.lower(),
-                        )
-                        if action == "include":
+                        ):
                             comments.append(serialize_comment(comment))
-                        elif action == "skip_irrelevant":
-                            skipped_count += 1
 
             # At page boundaries, stop if we've overlapped with known comments.
             if scanned_count % 100 == 0 and hit_known:
@@ -118,9 +113,6 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
 
         # Prepend this batch's new IDs (newest-first within batch,
         # and newer batches go in front of older ones).
-        for sid in batch_new_ids:
-            if sid not in new_ids_set:
-                new_ids_set.add(sid)
         new_ids = batch_new_ids + new_ids
 
         found_seen = hit_known or not has_watermark
@@ -136,22 +128,13 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
         )
 
         if comments or possible_gap:
-            activity.logger.info(
-                "Fetched %d comments for processing, skipped %d, "
-                "scanned=%d, found_seen=%s, listing_exhausted=%s, possible_gap=%s",
-                len(comments),
-                skipped_count,
-                scanned_count,
-                found_seen,
-                listing_exhausted,
-                possible_gap,
-            )
             return FetchCommentsResult(
                 comments=comments,
                 scanned_ids=new_ids,
                 found_seen=found_seen,
                 listing_exhausted=listing_exhausted,
                 scanned_count=scanned_count,
+                possible_gap=possible_gap,
             )
 
         # No new comments and no gap — adaptive backoff and poll again.

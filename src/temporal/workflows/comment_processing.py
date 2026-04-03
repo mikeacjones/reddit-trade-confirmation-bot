@@ -21,29 +21,6 @@ from ..shared import (
 )
 
 
-def _iter_exception_chain(exc: BaseException):
-    """Iterate exception, __cause__/__context__, and Temporal-style .cause chains."""
-    seen = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        yield current
-        seen.add(id(current))
-        next_exc = (
-            getattr(current, "cause", None) or current.__cause__ or current.__context__
-        )
-        current = next_exc if isinstance(next_exc, BaseException) else None
-
-
-def _is_control_flow_stop_exception(exc: Exception) -> bool:
-    """Return True for cancellation/termination-style exceptions."""
-    for err in _iter_exception_chain(exc):
-        err_type = type(err).__name__.lower()
-        if "cancel" in err_type or "terminate" in err_type:
-            return True
-
-    return False
-
-
 @workflow.defn
 class CommentPollingWorkflow:
     """Continuously polls for new comments and processes them.
@@ -62,14 +39,11 @@ class CommentPollingWorkflow:
     the running activity is cancelled and restarted with updated state.
     """
 
-    # Alert when we scan deep into the listing and still cannot find the watermark.
-    WATERMARK_GAP_SCAN_THRESHOLD = 900
-
     def __init__(self):
         self._should_stop = False
         self._seen_ids: list[str] = []
         self._processed_count = 0
-        self._last_gap_alert_seen_ids_len: int = 0
+        self._gap_alerted = False
         self._current_submission_id: str | None = None
         self._previous_submission_id: str | None = None
         self._submission_changed = False
@@ -146,7 +120,6 @@ class CommentPollingWorkflow:
             )
 
         while not self._should_stop:
-            had_seen_ids = len(self._seen_ids) > 0
             self._submission_changed = False
 
             # Build list of active submission IDs (filtering None).
@@ -196,9 +169,6 @@ class CommentPollingWorkflow:
             poll_result = await activity_handle
 
             comments = poll_result.comments
-            found_seen = poll_result.found_seen
-            listing_exhausted = poll_result.listing_exhausted
-            scanned_count = poll_result.scanned_count
 
             # Prepend new IDs to workflow state, truncate to watermark size.
             if poll_result.scanned_ids:
@@ -206,35 +176,28 @@ class CommentPollingWorkflow:
                     :WATERMARK_IDS_MAX
                 ]
 
-            possible_gap = (
-                had_seen_ids
-                and not found_seen
-                and listing_exhausted
-                and scanned_count >= self.WATERMARK_GAP_SCAN_THRESHOLD
-            )
-            if possible_gap:
+            if poll_result.possible_gap:
                 workflow.logger.warning(
                     "Possible listing gap for r/%s: scanned=%s without finding any seen comment",
                     SUBREDDIT_NAME,
-                    scanned_count,
+                    poll_result.scanned_count,
                 )
-                # Only alert once per gap (use seen_ids length as a rough dedup key).
-                if self._last_gap_alert_seen_ids_len != len(self._seen_ids):
+                if not self._gap_alerted:
                     await workflow.execute_activity(
                         notification_activities.send_pushover_notification,
                         args=[
                             (
                                 f"[r/{SUBREDDIT_NAME}] Possible comment listing gap: "
-                                f"scanned {scanned_count} comments without finding "
+                                f"scanned {poll_result.scanned_count} comments without finding "
                                 "any previously-seen comment. "
                                 "Manual review of recent confirmations recommended."
                             )
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                     )
-                    self._last_gap_alert_seen_ids_len = len(self._seen_ids)
-            elif found_seen:
-                self._last_gap_alert_seen_ids_len = 0
+                    self._gap_alerted = True
+            elif poll_result.found_seen:
+                self._gap_alerted = False
 
             # Route comments: reject root comments on old threads, process
             # non-root confirming comments on current or previous.
@@ -340,13 +303,10 @@ class ProcessConfirmationWorkflow:
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
                     await self._save(comment_id)
-                    assert validation.reason is not None
-                    return ConfirmationService.build_rejected_result(
-                        comment_id, validation.reason
-                    )
+                    return {"status": "rejected", "reason": validation.reason, "comment_id": comment_id}
 
                 await self._save(comment_id)
-                return ConfirmationService.build_skipped_result(comment_id)
+                return {"status": "skipped", "comment_id": comment_id}
 
             # Valid confirmation - request coordinated flair updates
             parent_comment_id = validation.parent_comment_id
@@ -393,18 +353,14 @@ class ProcessConfirmationWorkflow:
             # Save confirming comment only after successful confirmation flow.
             await self._save(comment_id)
 
-            comment_created = datetime.fromtimestamp(
+            elapsed = workflow.now() - datetime.fromtimestamp(
                 comment_data.created_utc, tz=timezone.utc
             )
-            elapsed = workflow.now() - comment_created
-            parent_author = validation.parent_author
-            confirmer = validation.confirmer
-            assert parent_author is not None and confirmer is not None
             workflow.logger.info(
                 "Confirmed trade: %s (%s) <-> %s (%s) — %.1fs from comment to reply",
-                parent_author,
+                validation.parent_author,
                 parent_result.new_flair,
-                confirmer,
+                validation.confirmer,
                 confirmer_result.new_flair,
                 elapsed.total_seconds(),
             )
@@ -416,14 +372,6 @@ class ProcessConfirmationWorkflow:
                 confirmer_result,
             )
         except Exception as exc:
-            if _is_control_flow_stop_exception(exc):
-                workflow.logger.info(
-                    "Propagating cancellation/termination for comment %s (%s)",
-                    comment_id,
-                    type(exc).__name__,
-                )
-                raise
-
             error_type = type(exc).__name__
             error_message = str(exc)
             workflow.logger.error(

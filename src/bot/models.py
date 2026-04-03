@@ -124,6 +124,7 @@ class FetchCommentsResult:
     found_seen: bool = True
     listing_exhausted: bool = False
     scanned_count: int = 0
+    possible_gap: bool = False
 
 
 @dataclass

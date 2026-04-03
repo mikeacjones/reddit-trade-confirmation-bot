@@ -64,39 +64,20 @@ class ConfirmationService:
         confirmer_result: FlairIncrementResult,
     ) -> ReplyToCommentInput:
         """Build the reply payload for a successful confirmation."""
-        parent_author = validation.parent_author
-        confirmer = validation.confirmer
-        if parent_author is None or confirmer is None:
-            raise ValueError("Confirmed validation must include parent_author and confirmer")
-
         reply_comment_id = validation.reply_to_comment_id or fallback_comment_id
         return ReplyToCommentInput(
             comment_id=reply_comment_id,
             template_name="trade_confirmation",
             format_args={
                 "comment_id": reply_comment_id,
-                "confirmer": confirmer,
-                "parent_author": parent_author,
+                "confirmer": validation.confirmer,
+                "parent_author": validation.parent_author,
                 "old_comment_flair": confirmer_result.old_flair or "unknown",
                 "new_comment_flair": confirmer_result.new_flair or "unknown",
                 "old_parent_flair": parent_result.old_flair or "unknown",
                 "new_parent_flair": parent_result.new_flair or "unknown",
             },
         )
-
-    @staticmethod
-    def build_rejected_result(comment_id: str, reason: str) -> dict:
-        """Build the workflow result for a rejected confirmation."""
-        return {
-            "status": "rejected",
-            "reason": reason,
-            "comment_id": comment_id,
-        }
-
-    @staticmethod
-    def build_skipped_result(comment_id: str) -> dict:
-        """Build the workflow result for a skipped confirmation."""
-        return {"status": "skipped", "comment_id": comment_id}
 
     @staticmethod
     def build_confirmed_result(
@@ -106,16 +87,11 @@ class ConfirmationService:
         confirmer_result: FlairIncrementResult,
     ) -> dict:
         """Build the workflow result for a successful confirmation."""
-        parent_author = validation.parent_author
-        confirmer = validation.confirmer
-        if parent_author is None or confirmer is None:
-            raise ValueError("Confirmed validation must include parent_author and confirmer")
-
         return {
             "status": "confirmed",
             "comment_id": comment_id,
-            "parent_author": parent_author,
-            "confirmer": confirmer,
+            "parent_author": validation.parent_author,
+            "confirmer": validation.confirmer,
             "parent_new_flair": parent_result.new_flair,
             "confirmer_new_flair": confirmer_result.new_flair,
         }

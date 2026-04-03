@@ -8,13 +8,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from bot.models import CommentData, ConfirmationContext  # noqa: E402
 from bot.rules import (  # noqa: E402
     build_confirmation_key,
-    classify_polled_comment,
     evaluate_confirmation,
     find_flair_template,
     format_flair_from_template,
     is_confirming_trade,
     is_possible_watermark_gap,
     parse_trade_count,
+    should_include_comment,
 )
 
 
@@ -47,59 +47,54 @@ class BotRulesTest(unittest.TestCase):
         )
 
 
-    def test_classify_polled_comment_root_on_previous_submission(self):
-        self.assertEqual(
-            classify_polled_comment(
+    def test_should_include_root_on_previous_submission(self):
+        self.assertTrue(
+            should_include_comment(
                 submission_id="prev1",
                 current_submission_id="cur1",
                 is_root=True,
                 body_lower="looking to trade",
-            ),
-            "include",
+            )
         )
 
-    def test_classify_polled_comment_root_on_current_submission(self):
-        self.assertEqual(
-            classify_polled_comment(
+    def test_should_exclude_root_on_current_submission(self):
+        self.assertFalse(
+            should_include_comment(
                 submission_id="cur1",
                 current_submission_id="cur1",
                 is_root=True,
                 body_lower="looking to trade",
-            ),
-            "skip_listing",
+            )
         )
 
-    def test_classify_polled_comment_non_root_confirmed(self):
-        self.assertEqual(
-            classify_polled_comment(
+    def test_should_include_non_root_confirmed(self):
+        self.assertTrue(
+            should_include_comment(
                 submission_id="cur1",
                 current_submission_id="cur1",
                 is_root=False,
                 body_lower="confirmed",
-            ),
-            "include",
+            )
         )
 
-    def test_classify_polled_comment_non_root_approved(self):
-        self.assertEqual(
-            classify_polled_comment(
+    def test_should_include_non_root_approved(self):
+        self.assertTrue(
+            should_include_comment(
                 submission_id="cur1",
                 current_submission_id="cur1",
                 is_root=False,
                 body_lower="mod approved this trade",
-            ),
-            "include",
+            )
         )
 
-    def test_classify_polled_comment_non_root_irrelevant(self):
-        self.assertEqual(
-            classify_polled_comment(
+    def test_should_exclude_non_root_irrelevant(self):
+        self.assertFalse(
+            should_include_comment(
                 submission_id="cur1",
                 current_submission_id="cur1",
                 is_root=False,
                 body_lower="thanks for the trade",
-            ),
-            "skip_irrelevant",
+            )
         )
 
     def test_is_possible_watermark_gap_all_conditions_met(self):

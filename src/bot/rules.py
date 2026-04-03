@@ -1,8 +1,6 @@
 """Pure business rules for the trade confirmation bot."""
 
 import re
-from typing import Literal
-
 from .models import CommentData, ConfirmationContext, ValidationResult
 
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
@@ -38,26 +36,22 @@ def format_flair_from_template(flair_template: str, count: int) -> str:
     return flair_template[:start] + str(count) + flair_template[end:]
 
 
-def classify_polled_comment(
+def should_include_comment(
     *,
     submission_id: str,
     current_submission_id: str,
     is_root: bool,
     body_lower: str,
-) -> Literal["include", "skip_listing", "skip_irrelevant"]:
-    """Decide how a polled comment should be handled.
+) -> bool:
+    """Decide whether a polled comment should be included for processing.
 
     Only called for comments that are on an active submission, not banned,
     and from a processable redditor.
     """
     if is_root:
-        if submission_id != current_submission_id:
-            return "include"
-        return "skip_listing"
+        return submission_id != current_submission_id
 
-    if "confirmed" not in body_lower and "approved" not in body_lower:
-        return "skip_irrelevant"
-    return "include"
+    return "confirmed" in body_lower or "approved" in body_lower
 
 
 def is_possible_watermark_gap(
