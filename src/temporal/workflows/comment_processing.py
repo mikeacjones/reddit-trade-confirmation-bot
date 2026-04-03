@@ -21,7 +21,6 @@ from ..shared import (
     CommentData,
     FetchCommentsInput,
     FlairIncrementRequest,
-    FlairIncrementResult,
     ReplyToCommentInput,
 )
 
@@ -156,7 +155,8 @@ class CommentPollingWorkflow:
 
             # Build list of active submission IDs (filtering None).
             active_submission_ids = [
-                sid for sid in [self._current_submission_id, self._previous_submission_id]
+                sid
+                for sid in [self._current_submission_id, self._previous_submission_id]
                 if sid is not None
             ]
 
@@ -177,9 +177,13 @@ class CommentPollingWorkflow:
 
             # Wait for activity completion OR a signal.
             await workflow.wait_condition(
-                lambda: activity_handle.done()
-                or self._should_stop
-                or self._submission_changed
+                lambda: (
+                    activity_handle.done()
+                    or self._should_stop
+                    or self._submission_changed
+                    # if we want this poller to bounce faster to the new version need to all watch current version here, or it will won't bounce until the new confirmation comment comes in
+                    or workflow.info().is_target_worker_deployment_version_changed()
+                )
             )
 
             if not activity_handle.done():
@@ -242,7 +246,7 @@ class CommentPollingWorkflow:
                 # Root comment on previous submission → wrong thread rejection.
                 if (
                     comment_data.is_root
-                    and comment_data.submission_id != self._current_submission_id
+                    and comment_data.submission_id == self._previous_submission_id
                 ):
                     await workflow.execute_activity(
                         comment_activities.reply_to_comment,
