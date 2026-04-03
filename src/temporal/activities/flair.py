@@ -2,10 +2,10 @@
 
 from temporalio import activity
 
+from bot.reddit import get_reddit_client, get_subreddit
 from bot.rules import FLAIR_TEMPLATE_PATTERN, format_flair_from_template, parse_trade_count
 
 from ..shared import FlairUpdateResult, SetUserFlairInput, UserFlairResult
-from .reddit import get_reddit_client, get_subreddit
 
 _flair_templates: dict | None = None
 _moderators: list | None = None

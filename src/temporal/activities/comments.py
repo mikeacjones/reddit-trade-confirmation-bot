@@ -4,6 +4,14 @@ import time
 
 from temporalio import activity
 
+from bot.reddit import (
+    get_bot_user,
+    get_reddit_client,
+    get_subreddit,
+    serialize_comment,
+    should_process_redditor,
+)
+
 from ..shared import (
     CommentData,
     FetchCommentsInput,
@@ -14,13 +22,6 @@ from ..shared import (
 )
 from .flair import is_moderator
 from .helpers import TemplateManager
-from .reddit import (
-    get_bot_user,
-    get_reddit_client,
-    get_subreddit,
-    serialize_comment,
-    should_process_redditor,
-)
 
 # Adaptive polling bounds (seconds)
 _MIN_POLL_DELAY = 1.0

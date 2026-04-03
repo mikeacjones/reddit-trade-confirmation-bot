@@ -344,6 +344,7 @@ class ProcessConfirmationWorkflow:
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
                     await self._save(comment_id)
+                    assert validation.reason is not None
                     return ConfirmationService.build_rejected_result(
                         comment_id, validation.reason
                     )
