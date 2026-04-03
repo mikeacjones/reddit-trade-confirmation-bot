@@ -6,6 +6,7 @@ from temporalio import workflow
 
 from bot.config import SUBREDDIT_NAME
 from bot.models import CreateMonthlyPostInput, SubmissionInput
+
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
 from ..shared import REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
@@ -25,7 +26,7 @@ class MonthlyPostWorkflow:
     """
 
     @workflow.run
-    async def run(self) -> dict:
+    async def run(self) -> dict[str, str | None]:
         """Create the monthly confirmation thread and lock the old one after 5 days.
 
         Returns:

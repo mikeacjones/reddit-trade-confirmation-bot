@@ -38,6 +38,7 @@ class ConfirmationServiceTest(unittest.TestCase):
 
         self.assertIsNotNone(reply)
         assert reply is not None
+        assert reply.format_args is not None
         self.assertEqual(reply.comment_id, "c1")
         self.assertEqual(reply.template_name, "cant_confirm_username")
         self.assertEqual(reply.format_args["parent_author"], "Seller")
@@ -108,6 +109,7 @@ class ConfirmationServiceTest(unittest.TestCase):
 
         self.assertEqual(reply.comment_id, "reply123")
         self.assertEqual(reply.template_name, "trade_confirmation")
+        assert reply.format_args is not None
         self.assertEqual(reply.format_args["parent_author"], "Seller")
         self.assertEqual(reply.format_args["confirmer"], "Buyer")
         self.assertEqual(reply.format_args["new_parent_flair"], "Trades: 3")

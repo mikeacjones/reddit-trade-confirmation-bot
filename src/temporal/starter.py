@@ -23,6 +23,7 @@ Environment variables:
 
 import asyncio
 import logging
+import os
 import sys
 
 from temporalio.client import (
@@ -106,7 +107,7 @@ async def start_polling():
         )
         logger.info(f"Started polling workflow: {workflow_id}")
         logger.info(
-            f"View in Temporal UI: http://localhost:8233/namespaces/reddit-bots/workflows/{workflow_id}"
+            f"View in Temporal UI: http://localhost:8233/namespaces/{TEMPORAL_NAMESPACE}/workflows/{workflow_id}"
         )
     except WorkflowAlreadyStartedError:
         logger.info(f"Polling workflow {workflow_id} is already running")
