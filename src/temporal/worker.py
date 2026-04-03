@@ -91,7 +91,9 @@ async def main():
     runtime = _build_runtime()
 
     logger.info(f"Connecting to Temporal at {TEMPORAL_HOST}")
-    client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE, runtime=runtime)
+    client = await Client.connect(
+        TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE, runtime=runtime
+    )
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
     logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
@@ -126,7 +128,7 @@ async def main():
         activity_executor=activity_executor,
         workflow_runner=SandboxedWorkflowRunner(
             restrictions=SandboxRestrictions.default.with_passthrough_modules(
-                "praw", "requests", "urllib3"
+                "praw", "requests", "urllib3", "bot"
             )
         ),
         deployment_config=WorkerDeploymentConfig(

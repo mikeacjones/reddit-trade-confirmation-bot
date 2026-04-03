@@ -4,6 +4,9 @@ from datetime import timedelta
 
 from temporalio import workflow
 
+with workflow.unsafe.imports_passed_through():
+    from .comment_processing import CommentPollingWorkflow
+
 from bot.config import SUBREDDIT_NAME
 from bot.models import CreateMonthlyPostInput, SubmissionInput
 
@@ -62,7 +65,7 @@ class MonthlyPostWorkflow:
             polling_handle = workflow.get_external_workflow_handle(
                 f"poll-{SUBREDDIT_NAME}"
             )
-            await polling_handle.signal("set_current_submission", new_submission_id)
+            await polling_handle.signal(CommentPollingWorkflow.set_current_submission, new_submission_id)
             workflow.logger.info("Signalled polling workflow with new submission")
         except Exception as exc:
             workflow.logger.warning(
