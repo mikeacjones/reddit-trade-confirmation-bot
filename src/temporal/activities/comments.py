@@ -4,6 +4,13 @@ import time
 
 from temporalio import activity
 
+from bot.models import (
+    CommentData,
+    FetchCommentsInput,
+    FetchCommentsResult,
+    ReplyToCommentInput,
+    ValidationResult,
+)
 from bot.reddit import (
     get_bot_user,
     get_reddit_client,
@@ -11,15 +18,7 @@ from bot.reddit import (
     serialize_comment,
     should_process_redditor,
 )
-
-from ..shared import (
-    CommentData,
-    FetchCommentsInput,
-    FetchCommentsResult,
-    ReplyToCommentInput,
-    ValidationResult,
-    is_confirming_trade,
-)
+from bot.rules import is_confirming_trade
 from .flair import is_moderator
 from .helpers import TemplateManager
 

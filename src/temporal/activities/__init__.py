@@ -6,7 +6,7 @@ from .comments import (
     reply_to_comment,
     validate_confirmation,
 )
-from .flair import get_user_flair, request_flair_increment, set_user_flair
+from .flair import FlairCoordinatorActivity, get_user_flair, set_user_flair
 from .notifications import send_pushover_notification
 from .submissions import (
     create_monthly_post,
@@ -25,7 +25,7 @@ __all__ = [
     # Flair
     "get_user_flair",
     "set_user_flair",
-    "request_flair_increment",
+    "FlairCoordinatorActivity",
     # Submissions
     "create_monthly_post",
     "fetch_active_submission_ids",

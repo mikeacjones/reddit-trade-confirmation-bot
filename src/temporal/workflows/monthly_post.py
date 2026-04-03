@@ -4,14 +4,11 @@ from datetime import timedelta
 
 from temporalio import workflow
 
+from bot.config import SUBREDDIT_NAME
+from bot.models import CreateMonthlyPostInput, SubmissionInput
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
-from ..shared import (
-    CreateMonthlyPostInput,
-    REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY,
-    SUBREDDIT_NAME,
-    SubmissionInput,
-)
+from ..shared import REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
 
 
 @workflow.defn

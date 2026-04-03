@@ -7,12 +7,11 @@ A Reddit trade confirmation bot using [Temporal](https://temporal.io/) for workf
 ```
 src/temporal/
 ├── __init__.py
-├── shared.py              # Configuration, data classes, retry policies
+├── shared.py              # Temporal retry policies and workflow constants
 ├── worker.py              # Temporal worker (main entry point)
 ├── starter.py             # CLI for schedule setup and workflow triggers
 ├── activities/
 │   ├── __init__.py
-│   ├── reddit.py          # Compatibility wrapper around bot.reddit helpers
 │   ├── comments.py        # Comment fetching, validation, replies
 │   ├── flair.py           # User flair management and coordinator update activity
 │   ├── submissions.py     # Monthly post creation, locking

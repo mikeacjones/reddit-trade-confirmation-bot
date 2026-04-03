@@ -1,38 +1,16 @@
 """Flair management activities for Temporal bot."""
 
-import os
-
 from temporalio import activity
 from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
 
+from bot.config import SUBREDDIT_NAME, TASK_QUEUE
+from bot.models import FlairIncrementRequest, FlairIncrementResult, FlairUpdateResult, SetUserFlairInput, UserFlairResult
 from bot.reddit import get_reddit_client, get_subreddit
 from bot.rules import FLAIR_TEMPLATE_PATTERN, format_flair_from_template, parse_trade_count
 
-from ..shared import (
-    FlairIncrementRequest,
-    FlairIncrementResult,
-    FlairUpdateResult,
-    SetUserFlairInput,
-    SUBREDDIT_NAME,
-    TASK_QUEUE,
-    UserFlairResult,
-)
-
 _flair_templates: dict | None = None
 _moderators: list | None = None
-_temporal_client: Client | None = None
-
-
-async def _get_temporal_client() -> Client:
-    """Get or create the Temporal client used for coordinator updates."""
-    global _temporal_client
-    if _temporal_client is None:
-        temporal_host = os.getenv(
-            "TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233")
-        )
-        _temporal_client = await Client.connect(temporal_host, namespace="reddit-bots")
-    return _temporal_client
 
 
 def _load_flair_templates(subreddit) -> dict:
@@ -121,27 +99,32 @@ def get_user_flair(username: str) -> UserFlairResult:
         is_trade_tracked=trade_count is not None,
     )
 
+class FlairCoordinatorActivity:
+    """Activity wrapper that reuses the worker's Temporal client."""
 
-@activity.defn
-async def request_flair_increment(request: FlairIncrementRequest) -> FlairIncrementResult:
-    """Route increment requests through the centralized coordinator workflow."""
-    client = await _get_temporal_client()
+    def __init__(self, client: Client) -> None:
+        self._client = client
 
-    # Lazy import avoids a circular dependency with the coordinator workflow.
-    from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
+    @activity.defn
+    async def request_flair_increment(
+        self, request: FlairIncrementRequest
+    ) -> FlairIncrementResult:
+        """Route increment requests through the centralized coordinator workflow."""
+        # Lazy import avoids a circular dependency with the coordinator workflow.
+        from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
 
-    start_op = WithStartWorkflowOperation(
-        FlairCoordinatorWorkflow.run,
-        id=f"flair-coordinator-{SUBREDDIT_NAME}",
-        task_queue=TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-    )
+        start_op = WithStartWorkflowOperation(
+            FlairCoordinatorWorkflow.run,
+            id=f"flair-coordinator-{SUBREDDIT_NAME}",
+            task_queue=TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
 
-    return await client.execute_update_with_start_workflow(
-        FlairCoordinatorWorkflow.apply_increment,
-        request,
-        start_workflow_operation=start_op,
-    )
+        return await self._client.execute_update_with_start_workflow(
+            FlairCoordinatorWorkflow.apply_increment,
+            request,
+            start_workflow_operation=start_op,
+        )
 
 
 @activity.defn

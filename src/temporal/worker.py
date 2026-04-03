@@ -29,6 +29,14 @@ from temporalio.worker.workflow_sandbox import (
     SandboxRestrictions,
 )
 
+from bot.config import (
+    BUILD_ID,
+    DEPLOYMENT_NAME,
+    SUBREDDIT_NAME,
+    TASK_QUEUE,
+    TEMPORAL_HOST,
+    TEMPORAL_NAMESPACE,
+)
 from temporal.activities import (
     create_monthly_post,
     fetch_active_submission_ids,
@@ -37,14 +45,13 @@ from temporal.activities import (
     mark_comment_saved,
     poll_new_comments,
     reply_to_comment,
-    request_flair_increment,
     send_pushover_notification,
     set_user_flair,
     sticky_submission,
     unsticky_submission,
     validate_confirmation,
 )
-from temporal.shared import BUILD_ID, DEPLOYMENT_NAME, SUBREDDIT_NAME, TASK_QUEUE
+from temporal.activities.flair import FlairCoordinatorActivity
 from temporal.workflows import (
     CommentPollingWorkflow,
     FlairCoordinatorWorkflow,
@@ -81,16 +88,16 @@ def _build_runtime() -> Runtime | None:
 
 async def main():
     """Start the Temporal worker."""
-    temporal_host = os.getenv("TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233"))
     runtime = _build_runtime()
 
-    logger.info(f"Connecting to Temporal at {temporal_host}")
-    client = await Client.connect(temporal_host, namespace="reddit-bots", runtime=runtime)
+    logger.info(f"Connecting to Temporal at {TEMPORAL_HOST}")
+    client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE, runtime=runtime)
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
     logger.info(f"Monitoring subreddit: r/{SUBREDDIT_NAME}")
 
     activity_executor = ThreadPoolExecutor(max_workers=32)
+    flair_coordinator_activity = FlairCoordinatorActivity(client)
 
     worker = Worker(
         client,
@@ -106,7 +113,7 @@ async def main():
             validate_confirmation,
             get_user_flair,
             set_user_flair,
-            request_flair_increment,
+            flair_coordinator_activity.request_flair_increment,
             mark_comment_saved,
             reply_to_comment,
             create_monthly_post,

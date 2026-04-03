@@ -6,13 +6,9 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
+from bot.models import FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
 from ..activities import flair as flair_activities
-from ..shared import (
-    REDDIT_RETRY_POLICY,
-    FlairIncrementRequest,
-    FlairIncrementResult,
-    SetUserFlairInput,
-)
+from ..shared import REDDIT_RETRY_POLICY
 
 
 @workflow.defn

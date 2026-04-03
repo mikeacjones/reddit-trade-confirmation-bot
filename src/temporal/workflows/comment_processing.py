@@ -8,6 +8,8 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
+from bot.config import SUBREDDIT_NAME, TASK_QUEUE
+from bot.models import CommentData, FetchCommentsInput
 from bot.services import ConfirmationService
 
 from ..activities import comments as comment_activities
@@ -16,12 +18,7 @@ from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
 from ..shared import (
     REDDIT_RETRY_POLICY,
-    SUBREDDIT_NAME,
-    TASK_QUEUE,
     WATERMARK_IDS_MAX,
-    CommentData,
-    FetchCommentsInput,
-    ReplyToCommentInput,
 )
 
 

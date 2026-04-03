@@ -23,7 +23,6 @@ Environment variables:
 
 import asyncio
 import logging
-import os
 import sys
 
 from temporalio.client import (
@@ -37,7 +36,7 @@ from temporalio.client import (
 )
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from temporal.shared import SUBREDDIT_NAME, TASK_QUEUE
+from bot.config import SUBREDDIT_NAME, TASK_QUEUE, TEMPORAL_HOST, TEMPORAL_NAMESPACE
 from temporal.workflows import (
     CommentPollingWorkflow,
     MonthlyPostWorkflow,
@@ -52,8 +51,7 @@ logger = logging.getLogger(__name__)
 
 async def get_client() -> Client:
     """Get Temporal client."""
-    temporal_host = os.getenv("TEMPORAL_ADDRESS", os.getenv("TEMPORAL_HOST", "localhost:7233"))
-    return await Client.connect(temporal_host, namespace="reddit-bots")
+    return await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
 
 
 async def setup_schedules():

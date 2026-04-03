@@ -4,24 +4,6 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from bot.config import BUILD_ID, DEPLOYMENT_NAME, MONTHLY_POST_FLAIR_ID, SUBREDDIT_NAME, TASK_QUEUE
-from bot.models import (
-    ActiveSubmissions,
-    CommentData,
-    CreateMonthlyPostInput,
-    FetchCommentsInput,
-    FetchCommentsResult,
-    FlairIncrementRequest,
-    FlairIncrementResult,
-    FlairUpdateResult,
-    ReplyToCommentInput,
-    SetUserFlairInput,
-    SubmissionInput,
-    UserFlairResult,
-    ValidationResult,
-)
-from bot.rules import FLAIR_PATTERN, FLAIR_TEMPLATE_PATTERN, is_confirming_trade
-
 # ============================================================================
 # Configuration
 # ============================================================================
