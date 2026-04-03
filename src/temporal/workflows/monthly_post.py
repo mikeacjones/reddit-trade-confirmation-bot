@@ -4,15 +4,15 @@ from datetime import timedelta
 
 from temporalio import workflow
 
+with workflow.unsafe.imports_passed_through():
+    from .comment_processing import CommentPollingWorkflow
+
+from bot.config import SUBREDDIT_NAME
+from bot.models import CreateMonthlyPostInput, SubmissionInput
+
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
-from ..activities import temporal_bridge as bridge_activities
-from ..shared import (
-    CreateMonthlyPostInput,
-    REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY,
-    SUBREDDIT_NAME,
-    SubmissionInput,
-)
+from ..shared import REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
 
 
 @workflow.defn
@@ -29,7 +29,7 @@ class MonthlyPostWorkflow:
     """
 
     @workflow.run
-    async def run(self) -> dict:
+    async def run(self) -> dict[str, str | None]:
         """Create the monthly confirmation thread and lock the old one after 5 days.
 
         Returns:
@@ -44,20 +44,12 @@ class MonthlyPostWorkflow:
         )
 
         # Discover the current submission ID (the one we're replacing).
-        subs = await workflow.execute_activity(
-            bridge_activities.query_polling_submissions,
-            start_to_close_timeout=timedelta(seconds=30),
+        active_submissions = await workflow.execute_activity(
+            submission_activities.fetch_active_submission_ids,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=REDDIT_RETRY_POLICY,
         )
-        old_submission_id = subs.current_submission_id
-
-        # Fallback: if polling workflow wasn't reachable, bootstrap from Reddit.
-        if old_submission_id is None:
-            fallback = await workflow.execute_activity(
-                submission_activities.fetch_active_submission_ids,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=REDDIT_RETRY_POLICY,
-            )
-            old_submission_id = fallback.current_submission_id
+        old_submission_id = active_submissions.current_submission_id
 
         # Create the new monthly post (idempotent).
         new_submission_id = await workflow.execute_activity(
@@ -73,7 +65,7 @@ class MonthlyPostWorkflow:
             polling_handle = workflow.get_external_workflow_handle(
                 f"poll-{SUBREDDIT_NAME}"
             )
-            await polling_handle.signal("set_current_submission", new_submission_id)
+            await polling_handle.signal(CommentPollingWorkflow.set_current_submission, new_submission_id)
             workflow.logger.info("Signalled polling workflow with new submission")
         except Exception as exc:
             workflow.logger.warning(

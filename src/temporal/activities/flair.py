@@ -1,15 +1,13 @@
 """Flair management activities for Temporal bot."""
 
 from temporalio import activity
+from temporalio.client import Client, WithStartWorkflowOperation
+from temporalio.common import WorkflowIDConflictPolicy
 
-from ..shared import (
-    FLAIR_PATTERN,
-    FLAIR_TEMPLATE_PATTERN,
-    FlairUpdateResult,
-    SetUserFlairInput,
-    UserFlairResult,
-)
-from .reddit import get_reddit_client, get_subreddit
+from bot.config import SUBREDDIT_NAME, TASK_QUEUE
+from bot.models import FlairIncrementRequest, FlairIncrementResult, FlairUpdateResult, SetUserFlairInput, UserFlairResult
+from bot.reddit import get_reddit_client, get_subreddit
+from bot.rules import FLAIR_TEMPLATE_PATTERN, find_flair_template, format_flair_from_template, parse_trade_count
 
 _flair_templates: dict | None = None
 _moderators: list | None = None
@@ -53,34 +51,7 @@ def _load_moderators(subreddit) -> list:
 def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | None:
     """Get appropriate flair template for trade count."""
     templates = _load_flair_templates(subreddit)
-    moderators = _load_moderators(subreddit)
-
-    for (min_trades, max_trades), template in templates.items():
-        if min_trades <= trade_count <= max_trades:
-            if template["mod_only"] == (username in moderators):
-                return template
-    return None
-
-
-def _format_flair(flair_template: str, count: int) -> str:
-    """Format flair text with trade count."""
-    match = FLAIR_TEMPLATE_PATTERN.search(flair_template)
-    if not match:
-        return flair_template
-    start, end = match.span(1)
-    return flair_template[:start] + str(count) + flair_template[end:]
-
-
-def apply_flair(username: str, count: int, subreddit) -> str | None:
-    """Set user's flair to specific trade count. Returns new flair text or None."""
-    template = _get_flair_template(count, username, subreddit)
-    if not template:
-        activity.logger.warning("No flair template found for %d trades", count)
-        return None
-
-    new_flair_text = _format_flair(template["template"], count)
-    subreddit.flair.set(username, text=new_flair_text, flair_template_id=template["id"])
-    return new_flair_text
+    return find_flair_template(templates, trade_count, is_moderator(username, subreddit))
 
 
 def is_moderator(username: str, subreddit) -> bool:
@@ -101,10 +72,7 @@ def get_user_flair(username: str) -> UserFlairResult:
     subreddit = get_subreddit(reddit)
 
     flair_text = next(subreddit.flair(username))["flair_text"]
-    trade_count: int | None = 0
-    if flair_text:
-        match = FLAIR_PATTERN.search(flair_text)
-        trade_count = int(match.group(1)) if match else None
+    trade_count = parse_trade_count(flair_text)
 
     return UserFlairResult(
         username=username,
@@ -112,6 +80,33 @@ def get_user_flair(username: str) -> UserFlairResult:
         trade_count=trade_count,
         is_trade_tracked=trade_count is not None,
     )
+
+class FlairCoordinatorActivity:
+    """Activity wrapper that reuses the worker's Temporal client."""
+
+    def __init__(self, client: Client) -> None:
+        self._client = client
+
+    @activity.defn
+    async def request_flair_increment(
+        self, request: FlairIncrementRequest
+    ) -> FlairIncrementResult:
+        """Route increment requests through the centralized coordinator workflow."""
+        # Lazy import avoids a circular dependency with the coordinator workflow.
+        from ..workflows.flair_coordinator import FlairCoordinatorWorkflow
+
+        start_op = WithStartWorkflowOperation(
+            FlairCoordinatorWorkflow.run,
+            id=f"flair-coordinator-{SUBREDDIT_NAME}",
+            task_queue=TASK_QUEUE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+
+        return await self._client.execute_update_with_start_workflow(
+            FlairCoordinatorWorkflow.apply_increment,
+            request,
+            start_workflow_operation=start_op,
+        )
 
 
 @activity.defn
@@ -133,7 +128,13 @@ def set_user_flair(input: SetUserFlairInput) -> FlairUpdateResult:
     subreddit = get_subreddit(reddit)
 
     # Set flair to the exact value specified by the workflow
-    new_flair = apply_flair(input.username, input.new_count, subreddit)
+    template = _get_flair_template(input.new_count, input.username, subreddit)
+    if not template:
+        activity.logger.warning("No flair template found for %d trades", input.new_count)
+        new_flair = None
+    else:
+        new_flair = format_flair_from_template(template["template"], input.new_count)
+        subreddit.flair.set(input.username, text=new_flair, flair_template_id=template["id"])
     activity.logger.info("u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair)
 
     return FlairUpdateResult(

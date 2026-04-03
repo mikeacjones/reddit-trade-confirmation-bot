@@ -5,15 +5,10 @@ from types import SimpleNamespace
 
 from temporalio import activity
 
-from ..shared import (
-    ActiveSubmissions,
-    CreateMonthlyPostInput,
-    MONTHLY_POST_FLAIR_ID,
-    SUBREDDIT_NAME,
-    SubmissionInput,
-)
+from bot.config import MONTHLY_POST_FLAIR_ID, SUBREDDIT_NAME
+from bot.models import ActiveSubmissions, CreateMonthlyPostInput, SubmissionInput
+from bot.reddit import get_bot_user, get_reddit_client, get_subreddit
 from .helpers import TemplateManager
-from .reddit import get_bot_user, get_reddit_client, get_subreddit
 
 
 @activity.defn

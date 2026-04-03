@@ -4,27 +4,33 @@ import time
 
 from temporalio import activity
 
-from ..shared import (
+from bot.models import (
     CommentData,
+    ConfirmationContext,
     FetchCommentsInput,
     FetchCommentsResult,
     ReplyToCommentInput,
     ValidationResult,
-    is_confirming_trade,
 )
-from .flair import is_moderator
-from .helpers import TemplateManager
-from .reddit import (
+from bot.reddit import (
     get_bot_user,
     get_reddit_client,
     get_subreddit,
     serialize_comment,
     should_process_redditor,
 )
+from bot.rules import (
+    evaluate_confirmation,
+    is_possible_watermark_gap,
+    should_include_comment,
+)
+
+from .flair import is_moderator
+from .helpers import TemplateManager
 
 # Adaptive polling bounds (seconds)
 _MIN_POLL_DELAY = 1.0
-_MAX_POLL_DELAY = 3.0
+_MAX_POLL_DELAY = 4.0
 
 # Alert when we scan deep into the listing and still cannot find the watermark.
 _WATERMARK_GAP_SCAN_THRESHOLD = 900
@@ -49,115 +55,86 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
     active_ids = set(input.active_submission_ids)
     current_submission_id = input.current_submission_id
 
-    # Internal watermark tracking (evolves across poll iterations).
-    original_seen_set = frozenset(input.seen_ids) if input.seen_ids else frozenset()
-    seen_ids_set: set[str] = set(original_seen_set)
-    had_initial_watermark = bool(original_seen_set)
+    # Watermark: IDs the workflow already knows about.
+    watermark = frozenset(input.seen_ids) if input.seen_ids else frozenset()
+    has_watermark = bool(watermark)
 
-    # IDs new relative to the workflow's watermark, newest-first.
-    accumulated_new_ids: list[str] = []
-    accumulated_new_set: set[str] = set()
+    # Known IDs: watermark + anything we scan across poll iterations.
+    # Used to skip already-processed comments and detect overlap.
+    known_ids: set[str] = set(watermark)
+
+    # New IDs to return to the workflow (newest-first).
+    # Built across poll iterations — each iteration prepends its batch.
+    new_ids: list[str] = []
 
     poll_delay = _MIN_POLL_DELAY
 
     while True:
-        scanned_ids: list[str] = []  # ordered newest-first as we encounter them
         comments: list[CommentData] = []
-        skipped_count = 0
         scanned_count = 0
-        found_seen = not seen_ids_set  # if no known IDs, nothing to find
-        batch_found_seen = False
-        listing_exhausted = True
+        hit_known = False
+        stopped_early = False
+        batch_new_ids: list[str] = []
 
         for comment in subreddit.comments(limit=None):
-            if (
-                scanned_count % 100 == 0
-            ):  # changing to 100 so we heartbeat on each page - under the hood, praw is paging 100 comments at a time
+            # Heartbeat at page boundaries. PRAW fetches 100 comments per
+            # API call before yielding, so the first page is already loaded
+            # when we enter the loop (scanned_count == 0).
+            if scanned_count % 100 == 0:
                 activity.heartbeat(f"Scanned {scanned_count} comments")
 
             scanned_count += 1
-            scanned_ids.append(comment.id)
 
-            # Check if this comment is already known — either in our cache or saved.
-            already_seen = comment.id in seen_ids_set or comment.saved
-            if already_seen:
-                batch_found_seen = True
+            if comment.id in known_ids or comment.saved:
+                hit_known = True
+            else:
+                known_ids.add(comment.id)
+                batch_new_ids.append(comment.id)
 
-            # At page boundaries (every 100 comments), decide whether to stop
-            # after evaluating the current comment.
-            should_stop_after_current = scanned_count % 100 == 0 and batch_found_seen
-
-            if not already_seen:
+                # link_id is "t3_abc123"; strip prefix to get raw submission ID
+                # without triggering a lazy submission load.
                 submission_id = comment.link_id[3:]
                 if submission_id in active_ids:
                     if comment.banned_by is None and should_process_redditor(
                         comment.author, bot_user
                     ):
-                        comment_body_lower = comment.body.lower()
+                        if should_include_comment(
+                            submission_id=submission_id,
+                            current_submission_id=current_submission_id,
+                            is_root=comment.is_root,
+                            body_lower=comment.body.lower(),
+                        ):
+                            comments.append(serialize_comment(comment))
 
-                        if comment.is_root:
-                            # Root comments on current submission are trade
-                            # listings — skip. Root comments on previous
-                            # submission are included so the workflow can
-                            # reject them with an "old thread" message.
-                            if submission_id != current_submission_id:
-                                comments.append(serialize_comment(comment))
-                        else:
-                            if (
-                                "confirmed" not in comment_body_lower
-                                and "approved" not in comment_body_lower
-                            ):
-                                skipped_count += 1
-                            else:
-                                comments.append(serialize_comment(comment))
-
-            if should_stop_after_current:
-                found_seen = True
-                listing_exhausted = False
+            # At page boundaries, stop if we've overlapped with known comments.
+            if scanned_count % 100 == 0 and hit_known:
+                stopped_early = True
                 break
 
-        if batch_found_seen:
-            found_seen = True
-            listing_exhausted = False
+        # Prepend this batch's new IDs (newest-first within batch,
+        # and newer batches go in front of older ones).
+        new_ids = batch_new_ids + new_ids
 
-        # Update internal watermark with newly scanned IDs.
-        seen_ids_set.update(scanned_ids)
-
-        # Track IDs new relative to the workflow's original watermark.
-        new_for_workflow = [
-            sid
-            for sid in scanned_ids
-            if sid not in original_seen_set and sid not in accumulated_new_set
-        ]
-        accumulated_new_set.update(new_for_workflow)
-        # Prepend: this iteration's IDs are newer than previous iterations'.
-        accumulated_new_ids = new_for_workflow + accumulated_new_ids
+        found_seen = hit_known or not has_watermark
+        listing_exhausted = not stopped_early
 
         # Check for possible watermark gap.
-        possible_gap = (
-            had_initial_watermark
-            and not found_seen
-            and listing_exhausted
-            and scanned_count >= _WATERMARK_GAP_SCAN_THRESHOLD
+        possible_gap = is_possible_watermark_gap(
+            had_initial_watermark=has_watermark,
+            found_seen=found_seen,
+            listing_exhausted=listing_exhausted,
+            scanned_count=scanned_count,
+            gap_threshold=_WATERMARK_GAP_SCAN_THRESHOLD,
         )
 
         if comments or possible_gap:
-            activity.logger.info(
-                "Fetched %d comments for processing, skipped %d, "
-                "scanned=%d, found_seen=%s, listing_exhausted=%s, possible_gap=%s",
-                len(comments),
-                skipped_count,
-                scanned_count,
-                found_seen,
-                listing_exhausted,
-                possible_gap,
-            )
             return FetchCommentsResult(
                 comments=comments,
-                scanned_ids=accumulated_new_ids,
+                scanned_ids=new_ids,
                 found_seen=found_seen,
                 listing_exhausted=listing_exhausted,
                 scanned_count=scanned_count,
+                possible_gap=possible_gap,
             )
 
         # No new comments and no gap — adaptive backoff and poll again.
@@ -167,86 +144,43 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
 
 @activity.defn
 def validate_confirmation(comment_data: CommentData) -> ValidationResult:
-    """Validate a confirmation comment."""
+    """Fetch parent/grandparent data and delegate to pure validation rules."""
     reddit = get_reddit_client()
     bot_user = get_bot_user(reddit)
-
-    # Root comments are filtered out by polling and should never reach here.
-    if comment_data.is_root:
-        return ValidationResult(valid=False)
-
-    comment = reddit.comment(id=comment_data.id)
     subreddit = get_subreddit(reddit)
 
-    # Get parent comment
-    parent_comment = comment.parent()
+    comment = reddit.comment(id=comment_data.id)
+    parent = comment.parent()
 
-    # Validate parent
-    if parent_comment is None or parent_comment.banned_by is not None:
-        return ValidationResult(valid=False)
+    context = ConfirmationContext(parent_exists=parent is not None)
 
-    if not should_process_redditor(parent_comment.author, bot_user):
-        return ValidationResult(valid=False)
-
-    # Can't confirm your own trade
-    if parent_comment.author.name == comment_data.author_name:
-        return ValidationResult(valid=False)
-
-    comment_body = comment_data.body.lower()
-
-    # Handle moderator approval (for replies to confirmations)
-    if not parent_comment.is_root:
-        if "approved" in comment_body and is_moderator(
-            comment_data.author_name, subreddit
-        ):
-            grandparent_comment = parent_comment.parent()
-            if grandparent_comment and grandparent_comment.is_root:
-                return ValidationResult(
-                    valid=True,
-                    is_mod_approval=True,
-                    parent_author=grandparent_comment.author.name,
-                    confirmer=parent_comment.author.name,
-                    parent_comment_id=grandparent_comment.id,
-                    reply_to_comment_id=parent_comment.id,
-                )
-        return ValidationResult(valid=False)
-
-    # Check if this is a confirmation
-    if not is_confirming_trade(comment_body):
-        return ValidationResult(valid=False)
-
-    # Check if already confirmed
-    if parent_comment.saved:
-        return ValidationResult(
-            valid=False,
-            reason="already_confirmed",
-            parent_author=parent_comment.author.name,
-            parent_comment_id=parent_comment.id,
+    if parent is not None:
+        context.parent_is_banned = parent.banned_by is not None
+        context.parent_is_processable = (
+            not context.parent_is_banned
+            and should_process_redditor(parent.author, bot_user)
         )
 
-    # Verify user is mentioned in parent comment
-    username_lower = comment_data.author_name.lower()
-    parent_body_lower = parent_comment.body.lower()
-    parent_html_lower = parent_comment.body_html.lower()
+        if context.parent_is_processable:
+            context.parent_author_name = str(parent.author.name)
+            context.parent_id = str(parent.id)
+            context.parent_is_root = bool(parent.is_root)
+            context.parent_is_saved = bool(parent.saved)
+            context.parent_body_lower = str(parent.body).lower()
+            context.parent_body_html_lower = str(parent.body_html).lower()
+            context.is_moderator = is_moderator(comment_data.author_name, subreddit)
 
-    if (
-        username_lower not in parent_body_lower
-        and username_lower not in parent_html_lower
-    ):
-        return ValidationResult(
-            valid=False,
-            reason="cant_confirm_username",
-            parent_author=parent_comment.author.name,
-        )
+            if not parent.is_root:
+                grandparent = parent.parent()
+                if grandparent and hasattr(grandparent, "is_root"):
+                    context.grandparent_exists = True
+                    context.grandparent_is_root = bool(grandparent.is_root)
+                    context.grandparent_author_name = (
+                        str(grandparent.author.name) if grandparent.author else ""
+                    )
+                    context.grandparent_id = str(grandparent.id)
 
-    # All checks passed
-    return ValidationResult(
-        valid=True,
-        parent_author=parent_comment.author.name,
-        confirmer=comment_data.author_name,
-        parent_comment_id=parent_comment.id,
-        reply_to_comment_id=comment_data.id,
-    )
+    return evaluate_confirmation(comment_data, context)
 
 
 @activity.defn

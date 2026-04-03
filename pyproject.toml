@@ -9,3 +9,10 @@ dependencies = [
     "praw>=7.8.1",
     "temporalio>=1.24.0",
 ]
+
+[tool.basedpyright]
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+typeCheckingMode = "standard"

@@ -1,15 +1,12 @@
-"""Reddit client utilities for activities.
-
-This module contains praw-related code that can only be used in activities,
-not in workflows (due to Temporal sandbox restrictions).
-"""
+"""Grouped Reddit adapter around PRAW access."""
 
 import os
 
 import praw
 import praw.models
 
-from ..shared import SUBREDDIT_NAME, CommentData
+from .config import SUBREDDIT_NAME
+from .models import CommentData
 
 _reddit_client: praw.Reddit | None = None
 _subreddit: praw.models.Subreddit | None = None
@@ -41,7 +38,7 @@ def get_subreddit(reddit: praw.Reddit | None = None) -> praw.models.Subreddit:
 
 
 def get_bot_user(reddit: praw.Reddit) -> praw.models.Redditor:
-    """Get the bot user."""
+    """Get the authenticated bot user."""
     global _bot_user
     if _bot_user is None:
         user = reddit.user.me()
@@ -52,12 +49,7 @@ def get_bot_user(reddit: praw.Reddit) -> praw.models.Redditor:
 
 
 def should_process_redditor(redditor, bot_user) -> bool:
-    """Check if redditor should be processed.
-
-    Args:
-        redditor: The redditor to check.
-        bot_user: The bot's user object (to avoid processing bot's own comments).
-    """
+    """Return whether the bot should act on the given redditor."""
     if redditor is None:
         return False
     if not hasattr(redditor, "id"):
@@ -70,7 +62,7 @@ def should_process_redditor(redditor, bot_user) -> bool:
 
 
 def serialize_comment(comment: praw.models.Comment) -> CommentData:
-    """Convert a PRAW comment to serializable data."""
+    """Convert a PRAW comment to a plain bot model."""
     return CommentData(
         id=comment.id,
         body=comment.body,

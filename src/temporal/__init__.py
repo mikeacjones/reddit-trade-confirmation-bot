@@ -14,6 +14,6 @@ Usage:
     python -m temporal.starter start-polling
 """
 
-from .shared import TASK_QUEUE, SUBREDDIT_NAME
+from bot.config import SUBREDDIT_NAME, TASK_QUEUE
 
 __all__ = ["TASK_QUEUE", "SUBREDDIT_NAME"]

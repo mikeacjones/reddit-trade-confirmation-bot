@@ -6,13 +6,9 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
+from bot.models import FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
 from ..activities import flair as flair_activities
-from ..shared import (
-    REDDIT_RETRY_POLICY,
-    FlairIncrementRequest,
-    FlairIncrementResult,
-    SetUserFlairInput,
-)
+from ..shared import REDDIT_RETRY_POLICY
 
 
 @workflow.defn
@@ -52,6 +48,8 @@ class FlairCoordinatorWorkflow:
 
         await workflow.wait_condition(
             lambda: (
+                self._should_continue_as_new
+                or
                 workflow.info().is_continue_as_new_suggested()
                 or workflow.info().is_target_worker_deployment_version_changed()
             )
