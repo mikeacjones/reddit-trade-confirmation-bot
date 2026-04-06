@@ -86,6 +86,19 @@ def _build_runtime() -> Runtime | None:
     return runtime
 
 
+async def _signal_wake_up(client: Client) -> None:
+    """Signal running CommentPollingWorkflow to re-evaluate version changes."""
+    workflow_id = f"poll-{SUBREDDIT_NAME}"
+    try:
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.signal(CommentPollingWorkflow.wake_up)
+        logger.info("Sent wake_up signal to %s", workflow_id)
+    except Exception:
+        logger.info(
+            "No running workflow %s to signal (may be first deploy)", workflow_id
+        )
+
+
 async def main():
     """Start the Temporal worker."""
     runtime = _build_runtime()
@@ -144,8 +157,16 @@ async def main():
     logger.info("Worker started. Press Ctrl+C to stop.")
 
     try:
-        await worker.run()
-    except KeyboardInterrupt:
+        async with worker:
+            # Worker is now polling — signal running workflows to wake up
+            # so they re-evaluate is_target_worker_deployment_version_changed().
+            # This is pretty unnecessary but I'm experimenting with how we make sure we quickly kick off
+            # managed upgrades with the worker controller, with workflows that have long running
+            # polling activities.
+            await _signal_wake_up(client)
+            # Block until shutdown
+            await asyncio.Future()
+    except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Worker shutdown requested")
 
 
