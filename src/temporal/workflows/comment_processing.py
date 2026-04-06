@@ -120,6 +120,20 @@ class CommentPollingWorkflow:
             )
 
         while not self._should_stop:
+            if (
+                workflow.info().is_continue_as_new_suggested()
+                or workflow.info().is_target_worker_deployment_version_changed()
+            ):
+                workflow.logger.info("Continuing as new")
+                workflow.continue_as_new(
+                    args=[
+                        self._seen_ids,
+                        self._current_submission_id,
+                        self._previous_submission_id,
+                    ],
+                    initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
+                )
+
             self._submission_changed = False
 
             # Build list of active submission IDs (filtering None).
@@ -150,7 +164,6 @@ class CommentPollingWorkflow:
                     activity_handle.done()
                     or self._should_stop
                     or self._submission_changed
-                    # if we want this poller to bounce faster to the new version need to all watch current version here, or it will won't bounce until the new confirmation comment comes in
                     or workflow.info().is_target_worker_deployment_version_changed()
                 )
             )
@@ -240,20 +253,6 @@ class CommentPollingWorkflow:
                         comment_data.id,
                         workflow_id,
                     )
-
-            if (
-                workflow.info().is_continue_as_new_suggested()
-                or workflow.info().is_target_worker_deployment_version_changed()
-            ):
-                workflow.logger.info("Continuing as new")
-                workflow.continue_as_new(
-                    args=[
-                        self._seen_ids,
-                        self._current_submission_id,
-                        self._previous_submission_id,
-                    ],
-                    initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
-                )
 
         workflow.logger.info("Comment polling stopped")
         return self.get_status()
