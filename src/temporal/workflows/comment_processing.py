@@ -9,7 +9,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE
-from bot.models import CommentData, FetchCommentsInput, FlairIncrementResult, ReplyToCommentInput
+from bot.models import (
+    CommentData,
+    FetchCommentsInput,
+    FlairIncrementResult,
+    ReplyToCommentInput,
+)
 from bot.services import ConfirmationService
 
 from ..activities import comments as comment_activities
@@ -52,6 +57,10 @@ class CommentPollingWorkflow:
     def stop(self) -> None:
         """Signal to stop the polling loop."""
         self._should_stop = True
+
+    @workflow.signal
+    def wake_up(self) -> None:
+        pass
 
     @workflow.signal
     def set_current_submission(self, submission_id: str) -> None:
@@ -302,7 +311,11 @@ class ProcessConfirmationWorkflow:
                         retry_policy=REDDIT_RETRY_POLICY,
                     )
                     await self._save(comment_id)
-                    return {"status": "rejected", "reason": validation.reason, "comment_id": comment_id}
+                    return {
+                        "status": "rejected",
+                        "reason": validation.reason,
+                        "comment_id": comment_id,
+                    }
 
                 await self._save(comment_id)
                 return {"status": "skipped", "comment_id": comment_id}
