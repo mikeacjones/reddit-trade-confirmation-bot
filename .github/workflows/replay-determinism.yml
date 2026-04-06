@@ -3,11 +3,6 @@ name: Replay Determinism Check
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "src/temporal/workflows/**"
-      - "src/bot/models.py"
-      - "src/bot/services.py"
-      - "tests/test_replay_determinism.py"
 
 jobs:
   replay-check:
