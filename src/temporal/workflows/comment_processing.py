@@ -21,6 +21,7 @@ from ..activities import comments as comment_activities
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
 from ..shared import (
+    PUSHOVER_RETRY_POLICY,
     REDDIT_RETRY_POLICY,
     WATERMARK_IDS_MAX,
 )
@@ -216,6 +217,7 @@ class CommentPollingWorkflow:
                             )
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=PUSHOVER_RETRY_POLICY,
                     )
                     self._gap_alerted = True
             elif poll_result.found_seen:
@@ -404,6 +406,7 @@ class ProcessConfirmationWorkflow:
                     )
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=PUSHOVER_RETRY_POLICY,
             )
 
             raise

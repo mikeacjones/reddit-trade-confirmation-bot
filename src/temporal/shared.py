@@ -46,3 +46,12 @@ REDDIT_RETRY_POLICY_CONSERVATIVE = RetryPolicy(
     backoff_coefficient=2.0,
     non_retryable_error_types=NON_RETRYABLE_ERRORS,
 )
+
+# Retry policy for Pushover notifications — non-critical, should not block
+# core business logic if the notification service is down.
+PUSHOVER_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
+    backoff_coefficient=2.0,
+)
