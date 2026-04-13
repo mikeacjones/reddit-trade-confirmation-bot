@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from temporalio import workflow
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 from temporalio.workflow import ContinueAsNewVersioningBehavior, ParentClosePolicy
 
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE
@@ -184,7 +184,7 @@ class CommentPollingWorkflow:
                 activity_handle.cancel()
                 try:
                     await activity_handle
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, ActivityError):
                     pass
                 continue
 
