@@ -12,6 +12,7 @@ from bot.models import CreateMonthlyPostInput, SubmissionInput
 
 from ..activities import notifications as notification_activities
 from ..activities import submissions as submission_activities
+from ..shared import PUSHOVER_RETRY_POLICY
 from ..shared import REDDIT_RETRY_POLICY_CONSERVATIVE as REDDIT_RETRY_POLICY
 
 
@@ -41,6 +42,7 @@ class MonthlyPostWorkflow:
             notification_activities.send_pushover_notification,
             args=[f"Creating monthly post for r/{SUBREDDIT_NAME}"],
             start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=PUSHOVER_RETRY_POLICY,
         )
 
         # Discover the current submission ID (the one we're replacing).
@@ -94,6 +96,7 @@ class MonthlyPostWorkflow:
             notification_activities.send_pushover_notification,
             args=[f"Monthly post for r/{SUBREDDIT_NAME}: {new_submission_id}"],
             start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=PUSHOVER_RETRY_POLICY,
         )
 
         workflow.logger.info("Monthly post created: %s", new_submission_id)
@@ -115,6 +118,7 @@ class MonthlyPostWorkflow:
                     f"Locked previous submission {old_submission_id} for r/{SUBREDDIT_NAME}"
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=PUSHOVER_RETRY_POLICY,
             )
 
             workflow.logger.info("Locked previous submission: %s", old_submission_id)
