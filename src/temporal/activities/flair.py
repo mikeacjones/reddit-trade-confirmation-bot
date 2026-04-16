@@ -75,7 +75,6 @@ def get_user_flair(username: str) -> UserFlairResult:
     trade_count = parse_trade_count(flair_text)
 
     return UserFlairResult(
-        username=username,
         flair_text=flair_text,
         trade_count=trade_count,
         is_trade_tracked=trade_count is not None,
@@ -138,8 +137,5 @@ def set_user_flair(input: SetUserFlairInput) -> FlairUpdateResult:
     activity.logger.info("u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair)
 
     return FlairUpdateResult(
-        username=input.username,
-        old_flair=input.old_flair,
         new_flair=new_flair,
-        success=new_flair is not None,
     )

@@ -52,10 +52,7 @@ class ConfirmationContext:
 class FlairUpdateResult:
     """Result of updating a user's flair."""
 
-    username: str
-    old_flair: str | None
     new_flair: str | None
-    success: bool
 
 
 @dataclass
@@ -71,10 +68,6 @@ class FlairIncrementRequest:
 class FlairIncrementResult:
     """Result of a coordinated flair increment operation."""
 
-    username: str
-    applied: bool
-    old_count: int | None = None
-    new_count: int | None = None
     old_flair: str | None = None
     new_flair: str | None = None
 
@@ -117,7 +110,6 @@ class FetchCommentsResult:
     comments: list[CommentData] = field(default_factory=list)
     scanned_ids: list[str] = field(default_factory=list)
     found_seen: bool = True
-    listing_exhausted: bool = False
     scanned_count: int = 0
     possible_gap: bool = False
 
@@ -144,7 +136,6 @@ class SetUserFlairInput:
 class UserFlairResult:
     """Result of getting a user's current flair."""
 
-    username: str
     flair_text: str | None
     trade_count: int | None
     is_trade_tracked: bool

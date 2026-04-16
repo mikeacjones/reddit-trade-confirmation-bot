@@ -78,14 +78,10 @@ class ConfirmationServiceTest(unittest.TestCase):
             reply_to_comment_id="reply123",
         )
         parent_result = FlairIncrementResult(
-            username="Seller",
-            applied=True,
             old_flair="Trades: 2",
             new_flair="Trades: 3",
         )
         confirmer_result = FlairIncrementResult(
-            username="Buyer",
-            applied=True,
             old_flair="Trades: 4",
             new_flair="Trades: 5",
         )
@@ -112,13 +108,9 @@ class ConfirmationServiceTest(unittest.TestCase):
             confirmer="Buyer",
         )
         parent_result = FlairIncrementResult(
-            username="Seller",
-            applied=True,
             new_flair="Trades: 3",
         )
         confirmer_result = FlairIncrementResult(
-            username="Buyer",
-            applied=True,
             new_flair="Trades: 5",
         )
 

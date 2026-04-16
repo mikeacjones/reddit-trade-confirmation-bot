@@ -94,10 +94,6 @@ class FlairCoordinatorWorkflow:
             # Preserve non-trade custom flairs rather than coercing them to 0.
             if not is_trade_tracked or not isinstance(api_count, int):
                 result = FlairIncrementResult(
-                    username=req.username,
-                    applied=False,
-                    old_count=api_count if isinstance(api_count, int) else None,
-                    new_count=api_count if isinstance(api_count, int) else None,
                     old_flair=current.flair_text,
                     new_flair=current.flair_text,
                 )
@@ -132,10 +128,6 @@ class FlairCoordinatorWorkflow:
                 self._last_known_count.popitem(last=False)
 
             result = FlairIncrementResult(
-                username=req.username,
-                applied=True,
-                old_count=current_count,
-                new_count=target_count,
                 old_flair=current.flair_text or "Trades: 0",
                 new_flair=set_result.new_flair,
             )

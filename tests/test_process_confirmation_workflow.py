@@ -53,19 +53,11 @@ VALID_VALIDATION = ValidationResult(
 )
 
 PARENT_FLAIR_RESULT = FlairIncrementResult(
-    username="Difficult_Grass9608",
-    applied=True,
-    old_count=25,
-    new_count=26,
     old_flair="Trades: 25",
     new_flair="Trades: 26",
 )
 
 CONFIRMER_FLAIR_RESULT = FlairIncrementResult(
-    username="saturnsrings7",
-    applied=True,
-    old_count=516,
-    new_count=517,
     old_flair="Trades: 516",
     new_flair="Trades: 517",
 )
