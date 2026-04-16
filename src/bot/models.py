@@ -9,15 +9,10 @@ class CommentData:
 
     id: str
     body: str
-    body_html: str
     author_name: str
-    author_flair_text: str | None
-    permalink: str
     created_utc: float
     is_root: bool
-    parent_id: str
     submission_id: str
-    saved: bool
 
 
 @dataclass
@@ -153,4 +148,3 @@ class UserFlairResult:
     flair_text: str | None
     trade_count: int | None
     is_trade_tracked: bool
-

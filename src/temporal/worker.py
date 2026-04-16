@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.client import Client
 from temporalio.common import VersioningBehavior, WorkerDeploymentVersion
+from temporalio.converter import DataConverter
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import Worker, WorkerDeploymentConfig
 from temporalio.worker.workflow_sandbox import (
@@ -52,6 +53,7 @@ from temporal.activities import (
     validate_confirmation,
 )
 from temporal.activities.flair import FlairCoordinatorActivity
+from temporal.codec import ZlibCodec
 from temporal.workflows import (
     CommentPollingWorkflow,
     FlairCoordinatorWorkflow,
@@ -105,7 +107,10 @@ async def main():
 
     logger.info(f"Connecting to Temporal at {TEMPORAL_HOST}")
     client = await Client.connect(
-        TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE, runtime=runtime
+        TEMPORAL_HOST,
+        namespace=TEMPORAL_NAMESPACE,
+        runtime=runtime,
+        data_converter=DataConverter(payload_codec=ZlibCodec()),
     )
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")

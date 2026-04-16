@@ -17,15 +17,10 @@ class ConfirmationServiceTest(unittest.TestCase):
         comment = CommentData(
             id="c1",
             body="confirmed",
-            body_html="<p>confirmed</p>",
             author_name="Confirmer",
-            author_flair_text="Trades: 4",
-            permalink="/r/test/comments/c1",
             created_utc=1.0,
             is_root=False,
-            parent_id="t1_parent",
             submission_id="s1",
-            saved=False,
         )
         validation = ValidationResult(
             valid=False,
@@ -49,15 +44,10 @@ class ConfirmationServiceTest(unittest.TestCase):
         comment = CommentData(
             id="c1",
             body="noop",
-            body_html="<p>noop</p>",
             author_name="User",
-            author_flair_text=None,
-            permalink="/r/test/comments/c1",
             created_utc=1.0,
             is_root=False,
-            parent_id="t1_parent",
             submission_id="s1",
-            saved=False,
         )
         validation = ValidationResult(valid=False)
 
