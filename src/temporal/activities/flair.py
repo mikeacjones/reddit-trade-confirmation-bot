@@ -5,9 +5,20 @@ from temporalio.client import Client, WithStartWorkflowOperation
 from temporalio.common import WorkflowIDConflictPolicy
 
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE
-from bot.models import FlairIncrementRequest, FlairIncrementResult, FlairUpdateResult, SetUserFlairInput, UserFlairResult
+from bot.models import (
+    FlairIncrementRequest,
+    FlairIncrementResult,
+    FlairUpdateResult,
+    SetUserFlairInput,
+    UserFlairResult,
+)
 from bot.reddit import get_reddit_client, get_subreddit
-from bot.rules import FLAIR_TEMPLATE_PATTERN, find_flair_template, format_flair_from_template, parse_trade_count
+from bot.rules import (
+    FLAIR_TEMPLATE_PATTERN,
+    find_flair_template,
+    format_flair_from_template,
+    parse_trade_count,
+)
 
 _flair_templates: dict | None = None
 _moderators: list | None = None
@@ -51,7 +62,9 @@ def _load_moderators(subreddit) -> list:
 def _get_flair_template(trade_count: int, username: str, subreddit) -> dict | None:
     """Get appropriate flair template for trade count."""
     templates = _load_flair_templates(subreddit)
-    return find_flair_template(templates, trade_count, is_moderator(username, subreddit))
+    return find_flair_template(
+        templates, trade_count, is_moderator(username, subreddit)
+    )
 
 
 def is_moderator(username: str, subreddit) -> bool:
@@ -80,6 +93,7 @@ def get_user_flair(username: str) -> UserFlairResult:
         is_trade_tracked=trade_count is not None,
     )
 
+
 class FlairCoordinatorActivity:
     """Activity wrapper that reuses the worker's Temporal client."""
 
@@ -105,6 +119,7 @@ class FlairCoordinatorActivity:
             FlairCoordinatorWorkflow.apply_increment,
             request,
             start_workflow_operation=start_op,
+            id=request.request_id,
         )
 
 
@@ -129,12 +144,18 @@ def set_user_flair(input: SetUserFlairInput) -> FlairUpdateResult:
     # Set flair to the exact value specified by the workflow
     template = _get_flair_template(input.new_count, input.username, subreddit)
     if not template:
-        activity.logger.warning("No flair template found for %d trades", input.new_count)
+        activity.logger.warning(
+            "No flair template found for %d trades", input.new_count
+        )
         new_flair = None
     else:
         new_flair = format_flair_from_template(template["template"], input.new_count)
-        subreddit.flair.set(input.username, text=new_flair, flair_template_id=template["id"])
-    activity.logger.info("u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair)
+        subreddit.flair.set(
+            input.username, text=new_flair, flair_template_id=template["id"]
+        )
+    activity.logger.info(
+        "u/%s flair set: '%s' -> '%s'", input.username, input.old_flair, new_flair
+    )
 
     return FlairUpdateResult(
         new_flair=new_flair,

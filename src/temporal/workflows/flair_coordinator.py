@@ -7,35 +7,25 @@ from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from bot.models import FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
+
 from ..activities import flair as flair_activities
 from ..shared import REDDIT_RETRY_POLICY
 
 
 @workflow.defn
 class FlairCoordinatorWorkflow:
-    """Serializes flair increments per-user and deduplicates request IDs."""
+    """Serializes flair increments per-user"""
 
-    MAX_APPLIED_BEFORE_CONTINUE_AS_NEW = 500
     MAX_FLAIR_CACHE = 30
 
     def __init__(self) -> None:
-        self._results_by_request_id: dict[str, FlairIncrementResult] = {}
         self._users_in_progress: set[str] = set()
-        self._applied_count = 0
-        self._should_continue_as_new = False
         self._draining = False
         # LRU cache of last-set flair counts per user.  Reddit's flair read API
         # (GET flairlist) is eventually consistent and can return stale data
         # immediately after a write (POST flair).  Because all increments are
         # serialised through this workflow, our own bookkeeping is authoritative.
         self._last_known_count: OrderedDict[str, int] = OrderedDict()
-
-    def _record_result(self, request_id: str, result: FlairIncrementResult) -> None:
-        """Store a result and flag continue-as-new if needed."""
-        self._results_by_request_id[request_id] = result
-        self._applied_count += 1
-        if self._applied_count >= self.MAX_APPLIED_BEFORE_CONTINUE_AS_NEW:
-            self._should_continue_as_new = True
 
     @workflow.run
     async def run(
@@ -48,8 +38,6 @@ class FlairCoordinatorWorkflow:
 
         await workflow.wait_condition(
             lambda: (
-                self._should_continue_as_new
-                or
                 workflow.info().is_continue_as_new_suggested()
                 or workflow.info().is_target_worker_deployment_version_changed()
             )
@@ -65,10 +53,6 @@ class FlairCoordinatorWorkflow:
     @workflow.update
     async def apply_increment(self, req: FlairIncrementRequest) -> FlairIncrementResult:
         """Apply one increment request with per-user serialization."""
-        cached = self._results_by_request_id.get(req.request_id)
-        if cached is not None:
-            return cached
-
         username = req.username
         while username in self._users_in_progress:
             await workflow.wait_condition(
@@ -77,10 +61,6 @@ class FlairCoordinatorWorkflow:
 
         self._users_in_progress.add(username)
         try:
-            cached = self._results_by_request_id.get(req.request_id)
-            if cached is not None:
-                return cached
-
             current = await workflow.execute_activity(
                 flair_activities.get_user_flair,
                 args=[req.username],
@@ -97,7 +77,6 @@ class FlairCoordinatorWorkflow:
                     old_flair=current.flair_text,
                     new_flair=current.flair_text,
                 )
-                self._record_result(req.request_id, result)
                 return result
 
             # Use our cached count when it's ahead of what Reddit returned,
@@ -131,8 +110,6 @@ class FlairCoordinatorWorkflow:
                 old_flair=current.flair_text or "Trades: 0",
                 new_flair=set_result.new_flair,
             )
-
-            self._record_result(req.request_id, result)
 
             return result
         finally:
