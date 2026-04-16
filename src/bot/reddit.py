@@ -66,13 +66,8 @@ def serialize_comment(comment: praw.models.Comment) -> CommentData:
     return CommentData(
         id=comment.id,
         body=comment.body,
-        body_html=comment.body_html,
         author_name=comment.author.name if comment.author else "",
-        author_flair_text=comment.author_flair_text,
-        permalink=comment.permalink,
         created_utc=comment.created_utc,
         is_root=comment.is_root,
-        parent_id=comment.parent_id,
         submission_id=comment.submission.id,
-        saved=comment.saved,
     )

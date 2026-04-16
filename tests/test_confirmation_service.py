@@ -17,15 +17,10 @@ class ConfirmationServiceTest(unittest.TestCase):
         comment = CommentData(
             id="c1",
             body="confirmed",
-            body_html="<p>confirmed</p>",
             author_name="Confirmer",
-            author_flair_text="Trades: 4",
-            permalink="/r/test/comments/c1",
             created_utc=1.0,
             is_root=False,
-            parent_id="t1_parent",
             submission_id="s1",
-            saved=False,
         )
         validation = ValidationResult(
             valid=False,
@@ -49,15 +44,10 @@ class ConfirmationServiceTest(unittest.TestCase):
         comment = CommentData(
             id="c1",
             body="noop",
-            body_html="<p>noop</p>",
             author_name="User",
-            author_flair_text=None,
-            permalink="/r/test/comments/c1",
             created_utc=1.0,
             is_root=False,
-            parent_id="t1_parent",
             submission_id="s1",
-            saved=False,
         )
         validation = ValidationResult(valid=False)
 
@@ -88,14 +78,10 @@ class ConfirmationServiceTest(unittest.TestCase):
             reply_to_comment_id="reply123",
         )
         parent_result = FlairIncrementResult(
-            username="Seller",
-            applied=True,
             old_flair="Trades: 2",
             new_flair="Trades: 3",
         )
         confirmer_result = FlairIncrementResult(
-            username="Buyer",
-            applied=True,
             old_flair="Trades: 4",
             new_flair="Trades: 5",
         )
@@ -122,13 +108,9 @@ class ConfirmationServiceTest(unittest.TestCase):
             confirmer="Buyer",
         )
         parent_result = FlairIncrementResult(
-            username="Seller",
-            applied=True,
             new_flair="Trades: 3",
         )
         confirmer_result = FlairIncrementResult(
-            username="Buyer",
-            applied=True,
             new_flair="Trades: 5",
         )
 

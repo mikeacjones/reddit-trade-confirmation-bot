@@ -36,15 +36,10 @@ from bot.models import (  # noqa: E402
 CONFIRMED_COMMENT = CommentData(
     id="oe2ihew",
     body="Confirmed thank you so much ",
-    body_html='<div class="md"><p>Confirmed thank you so much </p>\n</div>',
     author_name="saturnsrings7",
-    author_flair_text="Trades: 516",
-    permalink="/r/Pen_Swap/comments/1s94i6r/april_2026_confirmed_trade_thread/oe2ihew/",
     created_utc=1775223247.0,
     is_root=False,
-    parent_id="t1_oe0a7i3",
     submission_id="1s94i6r",
-    saved=False,
 )
 
 VALID_VALIDATION = ValidationResult(
@@ -58,19 +53,11 @@ VALID_VALIDATION = ValidationResult(
 )
 
 PARENT_FLAIR_RESULT = FlairIncrementResult(
-    username="Difficult_Grass9608",
-    applied=True,
-    old_count=25,
-    new_count=26,
     old_flair="Trades: 25",
     new_flair="Trades: 26",
 )
 
 CONFIRMER_FLAIR_RESULT = FlairIncrementResult(
-    username="saturnsrings7",
-    applied=True,
-    old_count=516,
-    new_count=517,
     old_flair="Trades: 516",
     new_flair="Trades: 517",
 )
@@ -78,15 +65,10 @@ CONFIRMER_FLAIR_RESULT = FlairIncrementResult(
 REJECTED_COMMENT = CommentData(
     id="reject1",
     body="Confirmed",
-    body_html="<p>Confirmed</p>",
     author_name="SomeUser",
-    author_flair_text="Trades: 1",
-    permalink="/r/Pen_Swap/comments/1s94i6r/april_2026_confirmed_trade_thread/reject1/",
     created_utc=1775223000.0,
     is_root=False,
-    parent_id="t1_parent1",
     submission_id="1s94i6r",
-    saved=False,
 )
 
 ALREADY_CONFIRMED_VALIDATION = ValidationResult(
@@ -99,15 +81,10 @@ ALREADY_CONFIRMED_VALIDATION = ValidationResult(
 SKIPPED_COMMENT = CommentData(
     id="skip1",
     body="thanks",
-    body_html="<p>thanks</p>",
     author_name="AnotherUser",
-    author_flair_text=None,
-    permalink="/r/Pen_Swap/comments/1s94i6r/april_2026_confirmed_trade_thread/skip1/",
     created_utc=1775223000.0,
     is_root=False,
-    parent_id="t1_parent2",
     submission_id="1s94i6r",
-    saved=False,
 )
 
 SKIPPED_VALIDATION = ValidationResult(valid=False)

@@ -132,7 +132,6 @@ def poll_new_comments(input: FetchCommentsInput) -> FetchCommentsResult:
                 comments=comments,
                 scanned_ids=new_ids,
                 found_seen=found_seen,
-                listing_exhausted=listing_exhausted,
                 scanned_count=scanned_count,
                 possible_gap=possible_gap,
             )

@@ -135,15 +135,10 @@ class BotRulesTest(unittest.TestCase):
 _DEFAULT_COMMENT = CommentData(
     id="c1",
     body="confirmed",
-    body_html="<p>confirmed</p>",
     author_name="Buyer",
-    author_flair_text="Trades: 4",
-    permalink="/r/test/comments/c1",
     created_utc=1.0,
     is_root=False,
-    parent_id="t1_parent",
     submission_id="s1",
-    saved=False,
 )
 
 _DEFAULT_CONTEXT = ConfirmationContext(
