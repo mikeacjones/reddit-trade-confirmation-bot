@@ -110,7 +110,6 @@ async def main():
         TEMPORAL_HOST,
         namespace=TEMPORAL_NAMESPACE,
         runtime=runtime,
-        data_converter=DataConverter(payload_codec=ZlibCodec()),
     )
 
     logger.info(f"Starting worker for task queue: {TASK_QUEUE}")
