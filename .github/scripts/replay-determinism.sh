@@ -78,11 +78,24 @@ done
 
 for wid in "${failed_workflows[@]}"; do
   echo "Setting $wid -> pinned"
+
+  versioning_info=$(temporal workflow describe \
+    --address "$TEMPORAL_ADDRESS" \
+    --namespace "$TEMPORAL_NAMESPACE" \
+    --workflow-id "$wid" \
+    --output json \
+    | jq -r '.workflowExecutionInfo.versioningInfo.deploymentVersion')
+
+  deploy_name=$(echo "$versioning_info" | jq -r '.deploymentName')
+  build_id=$(echo "$versioning_info" | jq -r '.buildId')
+
   temporal workflow update-options \
     --address "$TEMPORAL_ADDRESS" \
     --namespace "$TEMPORAL_NAMESPACE" \
     --workflow-id "$wid" \
-    --versioning-override-behavior pinned
+    --versioning-override-behavior pinned \
+    --versioning-override-deployment-name "$deploy_name" \
+    --versioning-override-build-id "$build_id"
 done
 
 echo ""
