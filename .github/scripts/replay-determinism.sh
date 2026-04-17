@@ -93,9 +93,8 @@ for wid in "${failed_workflows[@]}"; do
     --address "$TEMPORAL_ADDRESS" \
     --namespace "$TEMPORAL_NAMESPACE" \
     --workflow-id "$wid" \
-    --versioning-override-behavior pinned \
-    --versioning-override-deployment-name "$deploy_name" \
-    --versioning-override-build-id "$build_id"
+    --versioning-override-behavior unspecified
+    # use unspecified so the application code can control its own upgrade path via CaN
 done
 
 echo ""
