@@ -1,0 +1,7 @@
+apiVersion: temporal.io/v1alpha1
+kind: TemporalConnection
+metadata:
+  name: temporal-connection
+  namespace: {{ .Values.namespace }}
+spec:
+  hostPort: {{ .Values.temporal.hostPort | quote }}

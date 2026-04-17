@@ -1,0 +1,4 @@
+apiVersion: v2
+name: reddit-bot
+description: Deploys a Reddit bot as a Temporal versioned worker
+version: 0.1.0

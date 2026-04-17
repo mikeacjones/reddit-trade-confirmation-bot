@@ -1,0 +1,20 @@
+image:
+  repository: localhost:5000/reddit-trade-confirmation-bot
+  tag: latest
+
+botType: trade-confirmation-bot
+subredditName: ""
+secretName: ""
+
+temporal:
+  namespace: reddit-bots
+  connectionRef: temporal-connection
+
+replicas: 1
+
+rollout:
+  strategy: AllAtOnce
+
+sunset:
+  scaledownDelay: 5m
+  deleteDelay: 30m
