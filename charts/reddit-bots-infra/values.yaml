@@ -1,0 +1,5 @@
+namespace: reddit-bots
+
+temporal:
+  hostPort: "192.168.101.240:7233"
+  namespace: reddit-bots

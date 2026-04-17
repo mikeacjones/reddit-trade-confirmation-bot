@@ -1,0 +1,23 @@
+apiVersion: temporal.io/v1alpha1
+kind: TemporalWorkerDeployment
+metadata:
+  name: {{ .Values.subredditName | lower | replace "_" "-" }}
+spec:
+  replicas: {{ .Values.replicas }}
+  workerOptions:
+    connectionRef:
+      name: {{ .Values.temporal.connectionRef }}
+    temporalNamespace: {{ .Values.temporal.namespace }}
+  rollout:
+    strategy: {{ .Values.rollout.strategy }}
+  sunset:
+    scaledownDelay: {{ .Values.sunset.scaledownDelay }}
+    deleteDelay: {{ .Values.sunset.deleteDelay }}
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretName }}

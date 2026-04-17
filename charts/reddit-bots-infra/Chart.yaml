@@ -1,0 +1,4 @@
+apiVersion: v2
+name: reddit-bots-infra
+description: Shared infrastructure for Reddit bot deployments (namespace + Temporal connection)
+version: 0.1.0
