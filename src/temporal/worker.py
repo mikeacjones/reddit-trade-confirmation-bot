@@ -167,8 +167,8 @@ async def main():
             # This is pretty unnecessary but I'm experimenting with how we make sure we quickly kick off
             # managed upgrades with the worker controller, with workflows that have long running
             # polling activities.
-            await asyncio.sleep(30)
-            await _signal_wake_up(client)
+            # await asyncio.sleep(30)
+            # await _signal_wake_up(client)
             # Block until shutdown
             await asyncio.Future()
     except (KeyboardInterrupt, asyncio.CancelledError):
