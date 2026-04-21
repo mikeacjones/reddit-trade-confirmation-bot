@@ -52,12 +52,12 @@ for history_file in "$DOWNLOAD_DIR"/*.json; do
 
   cp "$history_file" "$solo_dir/"
 
-  echo -n "Replaying $wid ... "
-  if REPLAY_HISTORIES_DIR="$solo_dir" uv run python -m pytest tests/test_replay_determinism.py -x -q --tb=short 2>/dev/null; then
-    echo "PASSED"
+  echo "Replaying $wid ..."
+  if REPLAY_HISTORIES_DIR="$solo_dir" uv run python -m pytest tests/test_replay_determinism.py -x -q --tb=short; then
+    echo "$wid ... PASSED"
     passed_workflows+=("$wid")
   else
-    echo "FAILED"
+    echo "$wid ... FAILED"
     failed_workflows+=("$wid")
   fi
 
@@ -77,29 +77,18 @@ for wid in "${passed_workflows[@]}"; do
 done
 
 for wid in "${failed_workflows[@]}"; do
-  echo "Setting $wid -> pinned"
-
-  versioning_info=$(temporal workflow describe \
-    --address "$TEMPORAL_ADDRESS" \
-    --namespace "$TEMPORAL_NAMESPACE" \
-    --workflow-id "$wid" \
-    --output json \
-    | jq -r '.workflowExecutionInfo.versioningInfo.deploymentVersion')
-
-  deploy_name=$(echo "$versioning_info" | jq -r '.deploymentName')
-  build_id=$(echo "$versioning_info" | jq -r '.buildId')
-
+  # Use unspecified so the application code can control its own upgrade path via CaN
+  echo "Setting $wid -> unspecified"
   temporal workflow update-options \
     --address "$TEMPORAL_ADDRESS" \
     --namespace "$TEMPORAL_NAMESPACE" \
     --workflow-id "$wid" \
     --versioning-override-behavior unspecified
-    # use unspecified so the application code can control its own upgrade path via CaN
 done
 
 echo ""
 if [ ${#failed_workflows[@]} -gt 0 ]; then
-  echo "WARNING: ${#failed_workflows[@]} workflow(s) failed replay and were pinned:"
+  echo "WARNING: ${#failed_workflows[@]} workflow(s) failed replay and were set to unspecified:"
   printf '  - %s\n' "${failed_workflows[@]}"
 else
   echo "All ${#passed_workflows[@]} workflow(s) passed replay — set to auto_upgrade"
