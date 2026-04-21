@@ -16,3 +16,8 @@ venvPath = "."
 venv = ".venv"
 extraPaths = ["src"]
 typeCheckingMode = "standard"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
