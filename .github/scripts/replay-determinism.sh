@@ -4,7 +4,7 @@ set -euo pipefail
 # For each running workflow in the Temporal namespace, download its history,
 # replay it against the current code, and set the versioning override:
 #   - auto_upgrade  if replay succeeds
-#   - pinned        if replay fails (keeps the workflow on its current version)
+#   - unspecified   if replay fails, let the workflow decide when to upgrade
 #
 # Required env vars:
 #   TEMPORAL_ADDRESS   - Temporal server address (e.g. 192.168.101.240:7233)
