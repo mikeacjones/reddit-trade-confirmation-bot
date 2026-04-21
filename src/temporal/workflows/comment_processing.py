@@ -290,7 +290,7 @@ class ProcessConfirmationWorkflow:
         )
 
     @workflow.run
-    async def run(self, comment_data: CommentData) -> dict:
+    async def run(self, comment_data: CommentData):
         """Process a potential trade confirmation comment."""
         comment_id = comment_data.id
         author = comment_data.author_name
@@ -326,7 +326,7 @@ class ProcessConfirmationWorkflow:
                     }
 
                 await self._save(comment_id)
-                return {"status": "skipped", "comment_id": comment_id}
+                return
 
             # Valid confirmation - request coordinated flair updates
             parent_comment_id = validation.parent_comment_id
@@ -383,13 +383,6 @@ class ProcessConfirmationWorkflow:
                 validation.confirmer,
                 confirmer_result.new_flair,
                 elapsed.total_seconds(),
-            )
-
-            return ConfirmationService.build_confirmed_result(
-                comment_id,
-                validation,
-                parent_result,
-                confirmer_result,
             )
         except Exception as exc:
             error_type = type(exc).__name__
