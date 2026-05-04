@@ -238,6 +238,12 @@ class CommentPollingWorkflow:
                     and comment_data.submission_id == self._previous_submission_id
                 ):
                     await workflow.execute_activity(
+                        comment_activities.mark_comment_saved,
+                        args=[comment_data.id],
+                        start_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=REDDIT_RETRY_POLICY,
+                    )
+                    await workflow.execute_activity(
                         comment_activities.reply_to_comment,
                         args=[
                             ReplyToCommentInput(
