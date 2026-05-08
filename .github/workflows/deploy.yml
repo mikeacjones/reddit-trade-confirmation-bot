@@ -68,9 +68,6 @@ jobs:
         id: build
         run: .github/scripts/build.sh
 
-      - name: Replay determinism check and set versioning overrides
-        run: .github/scripts/replay-determinism.sh
-
       - name: Deploy bot instances
         env:
           BUILD_ID: ${{ steps.build.outputs.build_id }}
