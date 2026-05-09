@@ -39,7 +39,7 @@ class FlairCoordinatorWorkflow:
         await workflow.wait_condition(
             lambda: (
                 workflow.info().is_continue_as_new_suggested()
-                # or workflow.info().is_target_worker_deployment_version_changed()
+                or workflow.info().is_target_worker_deployment_version_changed()
             )
         )
         self._draining = True
