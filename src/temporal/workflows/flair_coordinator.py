@@ -6,9 +6,11 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
+from bot.config import SUBREDDIT_NAME
 from bot.models import FlairIncrementRequest, FlairIncrementResult, SetUserFlairInput
 
 from ..activities import flair as flair_activities
+from ..search_attributes import subreddit_search_attributes
 from ..shared import REDDIT_RETRY_POLICY
 
 
@@ -47,6 +49,7 @@ class FlairCoordinatorWorkflow:
 
         workflow.continue_as_new(
             args=[dict(self._last_known_count)],
+            search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
             initial_versioning_behavior=workflow.ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
         )
 
@@ -66,6 +69,7 @@ class FlairCoordinatorWorkflow:
                 args=[req.username],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=req.username,
             )
 
             api_count = current.trade_count
@@ -99,6 +103,7 @@ class FlairCoordinatorWorkflow:
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=f"{req.username}:{target_count}",
             )
 
             self._last_known_count[req.username] = target_count

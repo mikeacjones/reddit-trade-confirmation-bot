@@ -29,6 +29,15 @@ from ..shared import (
     REDDIT_RETRY_POLICY,
     WATERMARK_IDS_MAX,
 )
+from ..search_attributes import (
+    REDDIT_CONFIRMATION_STATUS,
+    confirmation_search_attributes,
+    subreddit_search_attributes,
+)
+
+
+def _upsert_confirmation_status(status: str) -> None:
+    workflow.upsert_search_attributes([REDDIT_CONFIRMATION_STATUS.value_set(status)])
 
 
 @workflow.defn
@@ -124,6 +133,7 @@ class CommentPollingWorkflow:
                 submission_activities.fetch_active_submission_ids,
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=f"r/{SUBREDDIT_NAME}",
             )
             self._current_submission_id = result.current_submission_id
             self._previous_submission_id = result.previous_submission_id
@@ -145,6 +155,7 @@ class CommentPollingWorkflow:
                         self._current_submission_id,
                         self._previous_submission_id,
                     ],
+                    search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
                     initial_versioning_behavior=ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
                 )
 
@@ -224,6 +235,7 @@ class CommentPollingWorkflow:
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=PUSHOVER_RETRY_POLICY,
+                        summary=f"listing-gap:{poll_result.scanned_count}",
                     )
                     self._gap_alerted = True
             elif poll_result.found_seen:
@@ -242,6 +254,7 @@ class CommentPollingWorkflow:
                         args=[comment_data.id],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
+                        summary=comment_data.id,
                     )
                     await workflow.execute_activity(
                         comment_activities.reply_to_comment,
@@ -253,6 +266,7 @@ class CommentPollingWorkflow:
                         ],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
+                        summary=f"{comment_data.id}:old_confirmation_thread",
                     )
                     self._processed_count += 1
                     continue
@@ -268,6 +282,15 @@ class CommentPollingWorkflow:
                         task_queue=TASK_QUEUE,
                         parent_close_policy=ParentClosePolicy.ABANDON,
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        search_attributes=confirmation_search_attributes(
+                            SUBREDDIT_NAME,
+                            comment_data.id,
+                            comment_data.submission_id,
+                            "processing",
+                        ),
+                        static_summary=(
+                            f"{comment_data.id}:u/{comment_data.author_name}"
+                        ),
                     )
                     self._processed_count += 1
                 except WorkflowAlreadyStartedError:
@@ -286,13 +309,14 @@ class ProcessConfirmationWorkflow:
     """Process a single comment for potential trade confirmation."""
 
     @staticmethod
-    async def _save(comment_id: str) -> None:
+    async def _save(comment_id: str, summary: str | None = None) -> None:
         """Mark a comment as saved/processed."""
         await workflow.execute_activity(
             comment_activities.mark_comment_saved,
             args=[comment_id],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=REDDIT_RETRY_POLICY,
+            summary=summary,
         )
 
     @workflow.run
@@ -323,15 +347,24 @@ class ProcessConfirmationWorkflow:
                         args=[reply_input],
                         start_to_close_timeout=timedelta(seconds=30),
                         retry_policy=REDDIT_RETRY_POLICY,
+                        summary=f"{reply_input.comment_id}:{reply_input.template_name}",
                     )
-                    await self._save(comment_id)
+                    await self._save(
+                        comment_id,
+                        comment_id,
+                    )
+                    _upsert_confirmation_status("rejected")
                     return {
                         "status": "rejected",
                         "reason": validation.reason,
                         "comment_id": comment_id,
                     }
 
-                await self._save(comment_id)
+                await self._save(
+                    comment_id,
+                    comment_id,
+                )
+                _upsert_confirmation_status("skipped")
                 return
 
             # Valid confirmation - request coordinated flair updates
@@ -346,6 +379,7 @@ class ProcessConfirmationWorkflow:
                 result_type=FlairIncrementResult,
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=f"{parent_request.username}:{parent_request.request_id}",
             )
 
             confirmer_increment = workflow.start_activity(
@@ -354,30 +388,39 @@ class ProcessConfirmationWorkflow:
                 result_type=FlairIncrementResult,
                 start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=f"{confirmer_request.username}:{confirmer_request.request_id}",
             )
 
             parent_result = await parent_increment
             confirmer_result = await confirmer_increment
 
             if parent_comment_id:
-                await self._save(parent_comment_id)
+                await self._save(
+                    parent_comment_id,
+                    parent_comment_id,
+                )
 
+            confirmation_reply = ConfirmationService.build_confirmation_reply(
+                comment_id,
+                validation,
+                parent_result,
+                confirmer_result,
+            )
             await workflow.execute_activity(
                 comment_activities.reply_to_comment,
-                args=[
-                    ConfirmationService.build_confirmation_reply(
-                        comment_id,
-                        validation,
-                        parent_result,
-                        confirmer_result,
-                    )
-                ],
+                args=[confirmation_reply],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=(
+                    f"{confirmation_reply.comment_id}:{confirmation_reply.template_name}"
+                ),
             )
 
             # Save confirming comment only after successful confirmation flow.
-            await self._save(comment_id)
+            await self._save(
+                comment_id,
+                comment_id,
+            )
 
             elapsed = workflow.now() - datetime.fromtimestamp(
                 comment_data.created_utc, tz=timezone.utc
@@ -390,9 +433,11 @@ class ProcessConfirmationWorkflow:
                 confirmer_result.new_flair,
                 elapsed.total_seconds(),
             )
+            _upsert_confirmation_status("confirmed")
         except Exception as exc:
             error_type = type(exc).__name__
             error_message = str(exc)
+            _upsert_confirmation_status("manual_review")
             workflow.logger.error(
                 "Manual review required for comment %s by %s: %s: %s",
                 comment_id,
@@ -412,6 +457,7 @@ class ProcessConfirmationWorkflow:
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=PUSHOVER_RETRY_POLICY,
+                summary=f"manual-review:{comment_id}",
             )
 
             raise
