@@ -34,10 +34,15 @@ from temporalio.client import (
     ScheduleCalendarSpec,
     ScheduleRange,
     ScheduleSpec,
+    ScheduleUpdate,
 )
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from bot.config import SUBREDDIT_NAME, TASK_QUEUE, TEMPORAL_HOST, TEMPORAL_NAMESPACE
+from temporal.search_attributes import (
+    ensure_search_attributes,
+    subreddit_search_attributes,
+)
 from temporal.workflows import (
     CommentPollingWorkflow,
     MonthlyPostWorkflow,
@@ -55,38 +60,60 @@ async def get_client() -> Client:
     return await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
 
 
+def _monthly_post_schedule() -> Schedule:
+    """Build the monthly post schedule with current workflow metadata."""
+    return Schedule(
+        action=ScheduleActionStartWorkflow(
+            MonthlyPostWorkflow.run,
+            id=f"monthly-post-{SUBREDDIT_NAME}",
+            task_queue=TASK_QUEUE,
+            typed_search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+            static_summary=f"r/{SUBREDDIT_NAME}",
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    day_of_month=[ScheduleRange(start=1)],
+                    hour=[ScheduleRange(start=0)],
+                    minute=[ScheduleRange(start=0)],
+                )
+            ]
+        ),
+    )
+
+
 async def setup_schedules():
     """Set up the scheduled workflows."""
     client = await get_client()
 
+    await ensure_search_attributes(client, TEMPORAL_NAMESPACE)
+
     logger.info("Setting up schedules...")
 
     # Monthly post schedule - 1st of each month at 00:00 UTC
+    schedule_id = f"monthly-post-schedule-{SUBREDDIT_NAME}"
+    schedule = _monthly_post_schedule()
     try:
-        await client.create_schedule(
-            f"monthly-post-schedule-{SUBREDDIT_NAME}",
-            Schedule(
-                action=ScheduleActionStartWorkflow(
-                    MonthlyPostWorkflow.run,
-                    id=f"monthly-post-{SUBREDDIT_NAME}",
-                    task_queue=TASK_QUEUE,
-                ),
-                spec=ScheduleSpec(
-                    calendars=[
-                        ScheduleCalendarSpec(
-                            day_of_month=[ScheduleRange(start=1)],
-                            hour=[ScheduleRange(start=0)],
-                            minute=[ScheduleRange(start=0)],
-                        )
-                    ]
-                ),
-            ),
-        )
+        await client.create_schedule(schedule_id, schedule)
         logger.info(
             f"Created schedule: monthly-post-schedule-{SUBREDDIT_NAME} (1st of month at 00:00 UTC)"
         )
     except ScheduleAlreadyRunningError:
-        logger.info(f"Schedule monthly-post-schedule-{SUBREDDIT_NAME} already exists")
+        handle = client.get_schedule_handle(schedule_id)
+
+        def update_existing_schedule(input):
+            current = input.description.schedule
+            return ScheduleUpdate(
+                Schedule(
+                    action=schedule.action,
+                    spec=schedule.spec,
+                    policy=current.policy,
+                    state=current.state,
+                )
+            )
+
+        await handle.update(update_existing_schedule)
+        logger.info(f"Updated schedule: monthly-post-schedule-{SUBREDDIT_NAME}")
 
     logger.info("Schedules setup complete")
 
@@ -94,6 +121,7 @@ async def setup_schedules():
 async def start_polling():
     """Start the comment polling workflow for the subreddit."""
     client = await get_client()
+    await ensure_search_attributes(client, TEMPORAL_NAMESPACE)
 
     workflow_id = f"poll-{SUBREDDIT_NAME}"
 
@@ -104,6 +132,8 @@ async def start_polling():
             CommentPollingWorkflow.run,
             id=workflow_id,
             task_queue=TASK_QUEUE,
+            search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+            static_summary=f"r/{SUBREDDIT_NAME}",
         )
         logger.info(f"Started polling workflow: {workflow_id}")
         logger.info(
@@ -116,6 +146,7 @@ async def start_polling():
 async def trigger_monthly_post():
     """Manually trigger the monthly post workflow."""
     client = await get_client()
+    await ensure_search_attributes(client, TEMPORAL_NAMESPACE)
 
     logger.info("Triggering monthly post workflow...")
 
@@ -123,6 +154,8 @@ async def trigger_monthly_post():
         MonthlyPostWorkflow.run,
         id=f"monthly-post-manual-{SUBREDDIT_NAME}",
         task_queue=TASK_QUEUE,
+        search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+        static_summary=f"r/{SUBREDDIT_NAME}",
     )
 
     result = await handle.result()
@@ -183,7 +216,7 @@ def print_usage():
 Usage: python -m temporal.starter <command>
 
 Commands:
-    setup               Set up scheduled workflows (run once)
+    setup               Register search attributes and set up schedules
     start-polling       Start polling for comments on current submission
     create-monthly      Manually trigger monthly post creation
     delete-lock-schedule  Delete stale lock-submissions schedule (one-time cleanup)

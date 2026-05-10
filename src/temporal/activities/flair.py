@@ -19,6 +19,7 @@ from bot.rules import (
     format_flair_from_template,
     parse_trade_count,
 )
+from temporal.search_attributes import subreddit_search_attributes
 
 _flair_templates: dict | None = None
 _moderators: list | None = None
@@ -113,6 +114,8 @@ class FlairCoordinatorActivity:
             id=f"flair-coordinator-{SUBREDDIT_NAME}",
             task_queue=TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+            static_summary=f"r/{SUBREDDIT_NAME}",
         )
 
         return await self._client.execute_update_with_start_workflow(

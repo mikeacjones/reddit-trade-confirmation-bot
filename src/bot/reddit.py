@@ -65,7 +65,7 @@ def serialize_comment(comment: praw.models.Comment) -> CommentData:
     """Convert a PRAW comment to a plain bot model."""
     return CommentData(
         id=comment.id,
-        body=comment.body,
+        body=comment.body.replace("\\", ""),
         author_name=comment.author.name if comment.author else "",
         created_utc=comment.created_utc,
         is_root=comment.is_root,

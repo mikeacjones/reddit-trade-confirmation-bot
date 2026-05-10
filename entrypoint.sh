@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "Running setup (schedules)..."
+echo "Running setup (search attributes + schedules)..."
 python -m temporal.starter setup
 
 echo "Starting polling workflow..."

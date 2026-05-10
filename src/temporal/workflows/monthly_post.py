@@ -43,6 +43,7 @@ class MonthlyPostWorkflow:
             args=[f"Creating monthly post for r/{SUBREDDIT_NAME}"],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=PUSHOVER_RETRY_POLICY,
+            summary=f"monthly-start:r/{SUBREDDIT_NAME}",
         )
 
         # Discover the current submission ID (the one we're replacing).
@@ -50,6 +51,7 @@ class MonthlyPostWorkflow:
             submission_activities.fetch_active_submission_ids,
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
+            summary=f"r/{SUBREDDIT_NAME}",
         )
         old_submission_id = active_submissions.current_submission_id
 
@@ -59,6 +61,7 @@ class MonthlyPostWorkflow:
             args=[CreateMonthlyPostInput(previous_submission_id=old_submission_id)],
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
+            summary=f"prev:{old_submission_id or 'none'}",
         )
 
         # Signal the polling workflow immediately so it starts scanning the
@@ -82,6 +85,7 @@ class MonthlyPostWorkflow:
             args=[SubmissionInput(submission_id=new_submission_id)],
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=REDDIT_RETRY_POLICY,
+            summary=new_submission_id,
         )
 
         if old_submission_id:
@@ -90,6 +94,7 @@ class MonthlyPostWorkflow:
                 args=[SubmissionInput(submission_id=old_submission_id)],
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=old_submission_id,
             )
 
         await workflow.execute_activity(
@@ -97,19 +102,24 @@ class MonthlyPostWorkflow:
             args=[f"Monthly post for r/{SUBREDDIT_NAME}: {new_submission_id}"],
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=PUSHOVER_RETRY_POLICY,
+            summary=f"monthly-post:{new_submission_id}",
         )
 
         workflow.logger.info("Monthly post created: %s", new_submission_id)
 
         # Wait 5 days then lock the old submission.
         if old_submission_id:
-            await workflow.sleep(timedelta(days=5))
+            await workflow.sleep(
+                timedelta(days=5),
+                summary=f"lock-after-5d:{old_submission_id}",
+            )
 
             await workflow.execute_activity(
                 submission_activities.lock_submission,
                 args=[SubmissionInput(submission_id=old_submission_id)],
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=REDDIT_RETRY_POLICY,
+                summary=old_submission_id,
             )
 
             await workflow.execute_activity(
@@ -119,6 +129,7 @@ class MonthlyPostWorkflow:
                 ],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=PUSHOVER_RETRY_POLICY,
+                summary=f"locked:{old_submission_id}",
             )
 
             workflow.logger.info("Locked previous submission: %s", old_submission_id)
