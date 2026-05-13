@@ -1,6 +1,7 @@
 """Pure business rules for the trade confirmation bot."""
 
 import re
+
 from .models import CommentData, ConfirmationContext, ValidationResult
 
 FLAIR_PATTERN = re.compile(r"Trades: (\d+)")
@@ -124,6 +125,9 @@ def evaluate_confirmation(
             valid=False,
             reason="cant_confirm_username",
             parent_author=context.parent_author_name,
+            parent_body_lower=context.parent_body_lower,
+            parent_body_html_lower=context.parent_body_html_lower,
+            confirmer=username_lower,
         )
 
     return ValidationResult(

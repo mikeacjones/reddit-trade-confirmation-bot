@@ -26,6 +26,8 @@ class ValidationResult:
     parent_comment_id: str | None = None
     is_mod_approval: bool = False
     reply_to_comment_id: str | None = None
+    parent_body_lower: str | None = None
+    parent_body_html_lower: str | None = None
 
 
 @dataclass
