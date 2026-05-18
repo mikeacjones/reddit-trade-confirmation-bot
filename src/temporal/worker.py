@@ -101,6 +101,7 @@ async def _signal_wake_up(client: Client) -> None:
         )
 
 
+
 async def main():
     """Start the Temporal worker."""
     runtime = _build_runtime()
