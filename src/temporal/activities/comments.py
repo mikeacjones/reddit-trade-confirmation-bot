@@ -165,7 +165,7 @@ def validate_confirmation(comment_data: CommentData) -> ValidationResult:
             context.parent_id = str(parent.id)
             context.parent_is_root = bool(parent.is_root)
             context.parent_is_saved = bool(parent.saved)
-            context.parent_body_lower = str(parent.body).lower()
+            context.parent_body_lower = str(parent.body).lower().replace("\\", "")
             context.parent_body_html_lower = str(parent.body_html).lower()
             context.is_moderator = is_moderator(comment_data.author_name, subreddit)
 
