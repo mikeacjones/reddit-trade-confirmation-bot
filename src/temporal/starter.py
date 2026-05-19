@@ -26,6 +26,7 @@ import logging
 import os
 import sys
 
+from temporalio.api.workflowservice.v1 import DescribeWorkerDeploymentRequest
 from temporalio.client import (
     Client,
     Schedule,
@@ -36,7 +37,11 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleUpdate,
 )
-from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.common import (
+    PinnedVersioningOverride,
+    WorkerDeploymentVersion,
+    WorkflowIDConflictPolicy,
+)
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from bot.config import (
@@ -47,6 +52,7 @@ from bot.config import (
     TEMPORAL_HOST,
     TEMPORAL_NAMESPACE,
 )
+from temporal.deployment_models import DeploymentHealthCheck
 from temporal.search_attributes import (
     ensure_search_attributes,
     subreddit_search_attributes,
@@ -228,16 +234,52 @@ async def signal_deployment_cleanup(
     await ensure_search_attributes(client, TEMPORAL_NAMESPACE)
 
     workflow_id = f"deployment-cleanup-{SUBREDDIT_SLUG}"
+    health_check = DeploymentHealthCheck(
+        build_id=build_id,
+        previous_build_id=os.getenv("DEPLOYMENT_PREVIOUS_BUILD_ID") or None,
+        container_name=os.getenv("DEPLOYMENT_CONTAINER_NAME") or None,
+        max_monitor_seconds=int(os.getenv("DEPLOYMENT_HEALTH_MAX_SECONDS", "0")),
+        check_interval_seconds=int(
+            os.getenv("DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS", "60")
+        ),
+        metrics_url=os.getenv("DEPLOYMENT_HEALTH_METRICS_URL") or None,
+        require_metrics=os.getenv("DEPLOYMENT_HEALTH_REQUIRE_METRICS", "false").lower()
+        == "true",
+        required_completed_workflows=int(
+            os.getenv("DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS", "5")
+        ),
+        required_completed_activities=int(
+            os.getenv("DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES", "5")
+        ),
+        max_failed_workflows=int(
+            os.getenv("DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS", "0")
+        ),
+        max_sdk_workflow_failures=int(
+            os.getenv("DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES", "0")
+        ),
+        max_sdk_activity_failures=int(
+            os.getenv("DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES", "0")
+        ),
+        max_sdk_workflow_task_failures=int(
+            os.getenv("DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES", "0")
+        ),
+    )
     handle = await client.start_workflow(
         DeploymentCleanupWorkflow.run,
         args=[deployment_name, SUBREDDIT_NAME],
         id=workflow_id,
         task_queue=TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         start_signal="deployed",
-        start_signal_args=[build_id],
+        start_signal_args=[build_id, health_check],
         search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
         static_summary=f"r/{SUBREDDIT_NAME} deployment cleanup",
+        versioning_override=PinnedVersioningOverride(
+            WorkerDeploymentVersion(
+                deployment_name=deployment_name,
+                build_id=build_id,
+            )
+        ),
     )
     logger.info(
         "Signal-with-start sent to %s for deployment=%s build_id=%s run_id=%s",
@@ -246,6 +288,23 @@ async def signal_deployment_cleanup(
         build_id,
         handle.result_run_id,
     )
+
+
+async def print_current_deployment_build_id(deployment_name: str = DEPLOYMENT_NAME):
+    """Print the current Worker Deployment build ID for shell scripts."""
+    client = await get_client()
+    response = await client.workflow_service.describe_worker_deployment(
+        DescribeWorkerDeploymentRequest(
+            namespace=TEMPORAL_NAMESPACE,
+            deployment_name=deployment_name,
+        ),
+        retry=True,
+    )
+    routing_config = response.worker_deployment_info.routing_config
+    build_id = routing_config.current_deployment_version.build_id
+    if not build_id:
+        build_id = routing_config.current_version.rsplit(".", 1)[-1]
+    print(build_id)
 
 
 def print_usage():
@@ -261,6 +320,8 @@ Commands:
     status              Show status of running workflows
     deployment-signal-with-start <build-id> [deployment-name]
                         Start/signal Docker deployment cleanup
+    deployment-current-build [deployment-name]
+                        Print current Worker Deployment build ID
 
 Make sure the worker is running before executing commands:
     python -m temporal.worker
@@ -292,6 +353,9 @@ async def main():
             return
         deployment_name = sys.argv[3] if len(sys.argv) > 3 else DEPLOYMENT_NAME
         await signal_deployment_cleanup(sys.argv[2], deployment_name)
+    elif command == "deployment-current-build":
+        deployment_name = sys.argv[2] if len(sys.argv) > 2 else DEPLOYMENT_NAME
+        await print_current_deployment_build_id(deployment_name)
     else:
         print(f"Unknown command: {command}")
         print_usage()

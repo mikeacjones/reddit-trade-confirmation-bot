@@ -4,6 +4,71 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class DeploymentHealthCheck:
+    """Health-check settings for a newly deployed build."""
+
+    build_id: str
+    previous_build_id: str | None = None
+    container_name: str | None = None
+    max_monitor_seconds: int = 0
+    check_interval_seconds: int = 60
+    metrics_url: str | None = None
+    require_metrics: bool = False
+    required_completed_workflows: int = 1
+    required_completed_activities: int = 1
+    max_failed_workflows: int = 0
+    max_sdk_workflow_failures: int = 0
+    max_sdk_activity_failures: int = 0
+    max_sdk_workflow_task_failures: int = 0
+
+
+@dataclass
+class TemporalExecutionSummary:
+    """Recent Temporal workflow executions for a Worker Deployment Version."""
+
+    count: int = 0
+    workflow_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SdkMetricsSnapshot:
+    """Relevant Temporal SDK metric counters for deployment health."""
+
+    workflow_completed: float = 0
+    activity_completed: float = 0
+    workflow_failed: float = 0
+    activity_failed: float = 0
+    workflow_task_failed: float = 0
+
+    def delta_from(self, baseline: "SdkMetricsSnapshot") -> "SdkMetricsSnapshot":
+        return SdkMetricsSnapshot(
+            workflow_completed=max(
+                0,
+                self.workflow_completed - baseline.workflow_completed,
+            ),
+            activity_completed=max(
+                0,
+                self.activity_completed - baseline.activity_completed,
+            ),
+            workflow_failed=max(0, self.workflow_failed - baseline.workflow_failed),
+            activity_failed=max(0, self.activity_failed - baseline.activity_failed),
+            workflow_task_failed=max(
+                0,
+                self.workflow_task_failed - baseline.workflow_task_failed,
+            ),
+        )
+
+
+@dataclass
+class DeploymentRollbackResult:
+    """Result of rolling a deployment back."""
+
+    deployment_name: str
+    rollback_build_id: str
+    container_removed: bool = False
+
+
+@dataclass
 class WorkerDeploymentVersionState:
     """Temporal Worker Deployment Version state needed for cleanup."""
 

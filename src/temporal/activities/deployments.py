@@ -3,9 +3,11 @@
 import http.client
 import json
 import os
+import re
 import socket
 from typing import Any
 from urllib.parse import quote, urlencode
+from urllib.request import urlopen
 
 from temporalio import activity
 from temporalio.api.deployment.v1 import WorkerDeploymentInfo
@@ -13,13 +15,21 @@ from temporalio.api.enums.v1 import (
     VersionDrainageStatus,
     WorkerDeploymentVersionStatus,
 )
-from temporalio.api.workflowservice.v1 import DescribeWorkerDeploymentRequest
+from temporalio.api.workflowservice.v1 import (
+    DescribeWorkerDeploymentRequest,
+    ListWorkflowExecutionsRequest,
+    SetWorkerDeploymentCurrentVersionRequest,
+)
 from temporalio.client import Client
 
-from bot.config import TEMPORAL_HOST, TEMPORAL_NAMESPACE
+from bot.config import TASK_QUEUE, TEMPORAL_HOST, TEMPORAL_NAMESPACE
 from temporal.deployment_models import (
+    DeploymentHealthCheck,
+    DeploymentRollbackResult,
     DockerCleanupResult,
     DockerContainerState,
+    SdkMetricsSnapshot,
+    TemporalExecutionSummary,
     WorkerDeploymentState,
     WorkerDeploymentVersionState,
 )
@@ -28,6 +38,19 @@ DEPLOYMENT_LABEL = "com.reddit-bots.deployment-name"
 BUILD_ID_LABEL = "com.reddit-bots.build-id"
 IMAGE_LABEL = "com.reddit-bots.image"
 DEFAULT_DOCKER_SOCKET = "/var/run/docker.sock"
+DEPLOYMENT_ACTIVITY_TYPES = {
+    "collect_sdk_metrics",
+    "count_completed_workflows_for_deployment",
+    "count_failed_workflows_for_deployment",
+    "describe_worker_deployment",
+    "list_deployment_containers",
+    "remove_deployment_container",
+    "rollback_worker_deployment",
+}
+PROMETHEUS_SAMPLE_RE = re.compile(
+    r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>[^}]*)\})?\s+"
+    r"(?P<value>[-+0-9.eE]+)"
+)
 
 
 class UnixSocketHTTPConnection(http.client.HTTPConnection):
@@ -91,6 +114,26 @@ def _enum_suffix(enum_wrapper: Any, value: int, prefix: str) -> str:
     return name
 
 
+def _deployment_version_build_id(info: Any) -> str | None:
+    if getattr(info, "assigned_build_id", ""):
+        return info.assigned_build_id
+    if getattr(info, "inherited_build_id", ""):
+        return info.inherited_build_id
+    stamp = getattr(info, "most_recent_worker_version_stamp", None)
+    if stamp is not None and getattr(stamp, "build_id", ""):
+        return stamp.build_id
+    versioning_info = getattr(info, "versioning_info", None)
+    if versioning_info is not None:
+        deployment_version = getattr(versioning_info, "deployment_version", None)
+        if deployment_version is not None and getattr(
+            deployment_version,
+            "build_id",
+            "",
+        ):
+            return deployment_version.build_id
+    return None
+
+
 def _version_summary_to_state(
     summary: WorkerDeploymentInfo.WorkerDeploymentVersionSummary,
 ) -> WorkerDeploymentVersionState:
@@ -123,6 +166,81 @@ def _version_summary_to_state(
     )
 
 
+def _labels_from_prometheus_sample(raw_labels: str | None) -> dict[str, str]:
+    if not raw_labels:
+        return {}
+
+    labels: dict[str, str] = {}
+    label_pattern = r'([a-zA-Z_][a-zA-Z0-9_]*)="((?:\\.|[^"])*)"'
+    for item in re.finditer(label_pattern, raw_labels):
+        labels[item.group(1)] = item.group(2).replace(r"\"", '"')
+    return labels
+
+
+def _sample_matches(
+    labels: dict[str, str],
+    *,
+    namespace: str,
+    task_queue: str,
+    subreddit_name: str,
+    exclude_activity_types: set[str] | None = None,
+) -> bool:
+    if (
+        exclude_activity_types
+        and labels.get("activity_type") in exclude_activity_types
+    ):
+        return False
+
+    expected = {
+        "namespace": namespace,
+        "task_queue": task_queue,
+        "subreddit": subreddit_name,
+    }
+    for key, value in expected.items():
+        if key in labels and labels[key] != value:
+            return False
+    return True
+
+
+def _sum_prometheus_counter(
+    text: str,
+    metric_names: set[str],
+    *,
+    namespace: str,
+    task_queue: str,
+    subreddit_name: str,
+    exclude_activity_types: set[str] | None = None,
+) -> float:
+    total = 0.0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        match = PROMETHEUS_SAMPLE_RE.match(line)
+        if match is None:
+            continue
+
+        name = match.group("name")
+        if name not in metric_names and not (
+            name.endswith("_total") and name.removesuffix("_total") in metric_names
+        ):
+            continue
+
+        labels = _labels_from_prometheus_sample(match.group("labels"))
+        if not _sample_matches(
+            labels,
+            namespace=namespace,
+            task_queue=task_queue,
+            subreddit_name=subreddit_name,
+            exclude_activity_types=exclude_activity_types,
+        ):
+            continue
+
+        total += float(match.group("value"))
+    return total
+
+
 @activity.defn
 async def describe_worker_deployment(deployment_name: str) -> WorkerDeploymentState:
     """Describe a Temporal Worker Deployment and its versions."""
@@ -142,6 +260,136 @@ async def describe_worker_deployment(deployment_name: str) -> WorkerDeploymentSt
             _version_summary_to_state(summary)
             for summary in info.version_summaries
         ],
+    )
+
+
+async def _count_workflows_for_deployment(
+    deployment_name: str,
+    build_id: str,
+    since_time_iso: str,
+    status: str,
+) -> TemporalExecutionSummary:
+    """Count recent workflows attributed to a deployment build by status."""
+    client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
+    query = f'ExecutionStatus = "{status}" AND CloseTime >= "{since_time_iso}"'
+    next_page_token = b""
+    workflow_ids: list[str] = []
+
+    while True:
+        response = await client.workflow_service.list_workflow_executions(
+            ListWorkflowExecutionsRequest(
+                namespace=TEMPORAL_NAMESPACE,
+                page_size=100,
+                next_page_token=next_page_token,
+                query=query,
+            ),
+            retry=True,
+        )
+
+        for execution_info in response.executions:
+            if execution_info.worker_deployment_name != deployment_name:
+                continue
+            if _deployment_version_build_id(execution_info) != build_id:
+                continue
+            workflow_ids.append(execution_info.execution.workflow_id)
+
+        next_page_token = response.next_page_token
+        if not next_page_token:
+            break
+
+    return TemporalExecutionSummary(
+        count=len(workflow_ids),
+        workflow_ids=workflow_ids[:20],
+    )
+
+
+@activity.defn
+async def count_failed_workflows_for_deployment(
+    deployment_name: str,
+    build_id: str,
+    since_time_iso: str,
+) -> TemporalExecutionSummary:
+    """Count recently failed workflows attributed to a deployment build."""
+    return await _count_workflows_for_deployment(
+        deployment_name,
+        build_id,
+        since_time_iso,
+        "Failed",
+    )
+
+
+@activity.defn
+async def count_completed_workflows_for_deployment(
+    deployment_name: str,
+    build_id: str,
+    since_time_iso: str,
+) -> TemporalExecutionSummary:
+    """Count recently completed workflows attributed to a deployment build."""
+    return await _count_workflows_for_deployment(
+        deployment_name,
+        build_id,
+        since_time_iso,
+        "Completed",
+    )
+
+
+@activity.defn
+async def collect_sdk_metrics(
+    health_check: DeploymentHealthCheck,
+    subreddit_name: str,
+) -> SdkMetricsSnapshot:
+    """Collect Temporal SDK failure counters from the worker metrics endpoint."""
+    metrics_url = health_check.metrics_url or os.getenv("DEPLOYMENT_HEALTH_METRICS_URL")
+    if not metrics_url:
+        bind_address = os.getenv("TEMPORAL_SDK_METRICS_BIND_ADDRESS", "").strip()
+        if bind_address:
+            port = bind_address.rsplit(":", 1)[-1]
+            metrics_url = f"http://127.0.0.1:{port}/metrics"
+
+    if not metrics_url:
+        raise RuntimeError("No SDK metrics URL configured")
+
+    with urlopen(metrics_url, timeout=5) as response:
+        metrics_text = response.read().decode("utf-8", errors="replace")
+
+    common = {
+        "namespace": TEMPORAL_NAMESPACE,
+        "task_queue": TASK_QUEUE,
+        "subreddit_name": subreddit_name,
+    }
+    return SdkMetricsSnapshot(
+        workflow_completed=_sum_prometheus_counter(
+            metrics_text,
+            {"temporal_workflow_completed"},
+            **common,
+        ),
+        activity_completed=_sum_prometheus_counter(
+            metrics_text,
+            {
+                "temporal_activity_execution_completed",
+                "temporal_activity_execution_latency_count",
+            },
+            exclude_activity_types=DEPLOYMENT_ACTIVITY_TYPES,
+            **common,
+        ),
+        workflow_failed=_sum_prometheus_counter(
+            metrics_text,
+            {"temporal_workflow_failed"},
+            **common,
+        ),
+        activity_failed=_sum_prometheus_counter(
+            metrics_text,
+            {"temporal_activity_execution_failed"},
+            **common,
+        ),
+        workflow_task_failed=_sum_prometheus_counter(
+            metrics_text,
+            {
+                "temporal_workflow_task_execution_failed",
+                "temporal_workflow_task_failed",
+            },
+            **common,
+        ),
     )
 
 
@@ -174,6 +422,39 @@ async def list_deployment_containers(
             )
         )
 
+    return result
+
+
+@activity.defn
+async def rollback_worker_deployment(
+    deployment_name: str,
+    rollback_build_id: str,
+    failed_container: DockerContainerState | None = None,
+) -> DeploymentRollbackResult:
+    """Set a Worker Deployment back to a previous build and remove failed container."""
+    client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
+    await client.workflow_service.set_worker_deployment_current_version(
+        SetWorkerDeploymentCurrentVersionRequest(
+            namespace=TEMPORAL_NAMESPACE,
+            deployment_name=deployment_name,
+            build_id=rollback_build_id,
+            identity="reddit-bots-deployment-health",
+        ),
+        retry=True,
+    )
+
+    result = DeploymentRollbackResult(
+        deployment_name=deployment_name,
+        rollback_build_id=rollback_build_id,
+    )
+    if failed_container is not None:
+        container_ref = quote(failed_container.id, safe="")
+        _docker_request(
+            "DELETE",
+            f"/containers/{container_ref}?force=true&v=true",
+            ok_statuses={204, 404},
+        )
+        result.container_removed = True
     return result
 
 

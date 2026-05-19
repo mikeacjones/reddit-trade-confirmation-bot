@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and push the Docker image to the local registry.
+# Build and optionally push the Docker image.
 #
 # Required env vars:
-#   REGISTRY  - Docker registry host (e.g. localhost:5000)
+#   REGISTRY  - Docker registry namespace (e.g. docker.io/your-user)
 #
 # Optional env vars:
 #   PUSH_IMAGE - Push the built image after building (default: true)

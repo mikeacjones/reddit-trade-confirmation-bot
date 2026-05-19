@@ -53,9 +53,13 @@ from temporal.activities import (
     validate_confirmation,
 )
 from temporal.activities.deployments import (
+    collect_sdk_metrics,
+    count_completed_workflows_for_deployment,
+    count_failed_workflows_for_deployment,
     describe_worker_deployment,
     list_deployment_containers,
     remove_deployment_container,
+    rollback_worker_deployment,
 )
 from temporal.activities.flair import FlairCoordinatorActivity
 from temporal.codec import ZlibCodec
@@ -86,6 +90,8 @@ def _build_runtime() -> Runtime | None:
             global_tags={
                 "app": "reddit-trade-confirmation-bot",
                 "subreddit": SUBREDDIT_NAME,
+                "deployment_name": DEPLOYMENT_NAME,
+                "build_id": BUILD_ID,
             },
         )
     )
@@ -150,7 +156,11 @@ async def main():
             lock_submission,
             send_pushover_notification,
             describe_worker_deployment,
+            count_completed_workflows_for_deployment,
+            count_failed_workflows_for_deployment,
+            collect_sdk_metrics,
             list_deployment_containers,
+            rollback_worker_deployment,
             remove_deployment_container,
         ],
         activity_executor=activity_executor,
