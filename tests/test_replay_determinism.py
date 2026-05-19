@@ -31,12 +31,14 @@ from temporal.workflows.comment_processing import (  # noqa: E402
     CommentPollingWorkflow,
     ProcessConfirmationWorkflow,
 )
+from temporal.workflows.deployment_cleanup import DeploymentCleanupWorkflow  # noqa: E402
 from temporal.workflows.flair_coordinator import FlairCoordinatorWorkflow  # noqa: E402
 from temporal.workflows.monthly_post import MonthlyPostWorkflow  # noqa: E402
 
 ALL_WORKFLOWS = [
     CommentPollingWorkflow,
     ProcessConfirmationWorkflow,
+    DeploymentCleanupWorkflow,
     FlairCoordinatorWorkflow,
     MonthlyPostWorkflow,
 ]

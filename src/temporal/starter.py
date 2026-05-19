@@ -36,15 +36,24 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleUpdate,
 )
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from bot.config import SUBREDDIT_NAME, TASK_QUEUE, TEMPORAL_HOST, TEMPORAL_NAMESPACE
+from bot.config import (
+    DEPLOYMENT_NAME,
+    SUBREDDIT_NAME,
+    SUBREDDIT_SLUG,
+    TASK_QUEUE,
+    TEMPORAL_HOST,
+    TEMPORAL_NAMESPACE,
+)
 from temporal.search_attributes import (
     ensure_search_attributes,
     subreddit_search_attributes,
 )
 from temporal.workflows import (
     CommentPollingWorkflow,
+    DeploymentCleanupWorkflow,
     MonthlyPostWorkflow,
 )
 
@@ -210,6 +219,35 @@ async def show_status():
         logger.info(f"  - {schedule.id}")
 
 
+async def signal_deployment_cleanup(
+    build_id: str,
+    deployment_name: str = DEPLOYMENT_NAME,
+):
+    """Signal-with-start the subreddit-scoped deployment cleanup workflow."""
+    client = await get_client()
+    await ensure_search_attributes(client, TEMPORAL_NAMESPACE)
+
+    workflow_id = f"deployment-cleanup-{SUBREDDIT_SLUG}"
+    handle = await client.start_workflow(
+        DeploymentCleanupWorkflow.run,
+        args=[deployment_name, SUBREDDIT_NAME],
+        id=workflow_id,
+        task_queue=TASK_QUEUE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        start_signal="deployed",
+        start_signal_args=[build_id],
+        search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+        static_summary=f"r/{SUBREDDIT_NAME} deployment cleanup",
+    )
+    logger.info(
+        "Signal-with-start sent to %s for deployment=%s build_id=%s run_id=%s",
+        workflow_id,
+        deployment_name,
+        build_id,
+        handle.result_run_id,
+    )
+
+
 def print_usage():
     """Print usage information."""
     print("""
@@ -221,6 +259,8 @@ Commands:
     create-monthly      Manually trigger monthly post creation
     delete-lock-schedule  Delete stale lock-submissions schedule (one-time cleanup)
     status              Show status of running workflows
+    deployment-signal-with-start <build-id> [deployment-name]
+                        Start/signal Docker deployment cleanup
 
 Make sure the worker is running before executing commands:
     python -m temporal.worker
@@ -245,6 +285,13 @@ async def main():
         await delete_lock_schedule()
     elif command == "status":
         await show_status()
+    elif command == "deployment-signal-with-start":
+        if len(sys.argv) < 3:
+            print("Missing build ID")
+            print_usage()
+            return
+        deployment_name = sys.argv[3] if len(sys.argv) > 3 else DEPLOYMENT_NAME
+        await signal_deployment_cleanup(sys.argv[2], deployment_name)
     else:
         print(f"Unknown command: {command}")
         print_usage()

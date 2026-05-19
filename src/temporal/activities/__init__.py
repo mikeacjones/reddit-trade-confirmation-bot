@@ -6,6 +6,11 @@ from .comments import (
     reply_to_comment,
     validate_confirmation,
 )
+from .deployments import (
+    describe_worker_deployment,
+    list_deployment_containers,
+    remove_deployment_container,
+)
 from .flair import FlairCoordinatorActivity, get_user_flair, set_user_flair
 from .notifications import send_pushover_notification
 from .submissions import (
@@ -34,4 +39,8 @@ __all__ = [
     "lock_submission",
     # Notifications
     "send_pushover_notification",
+    # Deployments
+    "describe_worker_deployment",
+    "list_deployment_containers",
+    "remove_deployment_container",
 ]

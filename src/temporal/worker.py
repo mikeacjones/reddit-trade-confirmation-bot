@@ -52,10 +52,16 @@ from temporal.activities import (
     unsticky_submission,
     validate_confirmation,
 )
+from temporal.activities.deployments import (
+    describe_worker_deployment,
+    list_deployment_containers,
+    remove_deployment_container,
+)
 from temporal.activities.flair import FlairCoordinatorActivity
 from temporal.codec import ZlibCodec
 from temporal.workflows import (
     CommentPollingWorkflow,
+    DeploymentCleanupWorkflow,
     FlairCoordinatorWorkflow,
     MonthlyPostWorkflow,
     ProcessConfirmationWorkflow,
@@ -127,6 +133,7 @@ async def main():
             ProcessConfirmationWorkflow,
             FlairCoordinatorWorkflow,
             MonthlyPostWorkflow,
+            DeploymentCleanupWorkflow,
         ],
         activities=[
             poll_new_comments,
@@ -142,6 +149,9 @@ async def main():
             unsticky_submission,
             lock_submission,
             send_pushover_notification,
+            describe_worker_deployment,
+            list_deployment_containers,
+            remove_deployment_container,
         ],
         activity_executor=activity_executor,
         workflow_runner=SandboxedWorkflowRunner(

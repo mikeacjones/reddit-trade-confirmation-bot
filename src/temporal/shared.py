@@ -55,3 +55,12 @@ PUSHOVER_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     backoff_coefficient=2.0,
 )
+
+# Short retry policy for local deployment/Docker inspection activities. The
+# workflow loops and retries later, so each individual check should fail fast.
+DEPLOYMENT_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=2),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
+    backoff_coefficient=2.0,
+)
