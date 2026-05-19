@@ -23,6 +23,8 @@ set -euo pipefail
 #   DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES     (default: 0)
 #   DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES     (default: 0)
 #   DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES (default: 0)
+#   DEPLOYMENT_WORKER_START_WAIT_SECONDS            (default: 300)
+#   DEPLOYMENT_WORKER_START_RETRY_SECONDS           (default: 5)
 
 BOT_ENV_DIR="${BOTS_DIR}/trade-confirmation-bot"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-reddit-bots/reddit-trade-confirmation-bot}"
@@ -38,6 +40,8 @@ DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS="${DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS
 DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES="${DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES:-0}"
 DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES="${DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES:-0}"
 DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES="${DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES:-0}"
+DEPLOYMENT_WORKER_START_WAIT_SECONDS="${DEPLOYMENT_WORKER_START_WAIT_SECONDS:-300}"
+DEPLOYMENT_WORKER_START_RETRY_SECONDS="${DEPLOYMENT_WORKER_START_RETRY_SECONDS:-5}"
 
 if [ ! -d "$BOT_ENV_DIR" ]; then
   echo "ERROR: Bot env directory not found: $BOT_ENV_DIR"
@@ -65,8 +69,8 @@ temporal_allow_exists() {
     return 0
   fi
 
-  if echo "$output" | grep -qi "already"; then
-    echo "$output"
+  if echo "$output" | grep -qi "already exists"; then
+    echo "Already exists"
     return 0
   fi
 
@@ -107,6 +111,29 @@ wait_for_current_version() {
 
   echo "ERROR: Timed out setting current Temporal version for $deployment_name/$build_id"
   return 1
+}
+
+rollback_failed_deployment_start() {
+  local deployment_name="$1"
+  local previous_build_id="$2"
+  local container_name="$3"
+
+  echo "  ERROR: Failed to start deployment cleanup workflow"
+
+  if [ -n "$previous_build_id" ]; then
+    echo "  Rolling Temporal current version back to $previous_build_id"
+    temporal_cli worker deployment set-current-version \
+      --deployment-name "$deployment_name" \
+      --build-id "$previous_build_id" \
+      --yes || echo "  WARNING: Failed to roll Temporal current version back"
+  else
+    echo "  No previous build is known; Temporal current version was not rolled back"
+  fi
+
+  if docker container inspect "$container_name" >/dev/null 2>&1; then
+    echo "  Removing failed deployment container: $container_name"
+    docker rm -f "$container_name" || echo "  WARNING: Failed to remove $container_name"
+  fi
 }
 
 for env_file in "$BOT_ENV_DIR"/*.env; do
@@ -185,7 +212,7 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
   wait_for_current_version "$deployment_name" "$BUILD_ID"
 
   echo "  Signal-with-start deployment cleanup workflow"
-  PYTHONPATH=src \
+  if ! PYTHONPATH=src \
   SUBREDDIT_NAME="$subreddit_name" \
   TEMPORAL_ADDRESS="$TEMPORAL_ADDRESS" \
   TEMPORAL_NAMESPACE="$TEMPORAL_NAMESPACE" \
@@ -202,9 +229,14 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
   DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES" \
   DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES" \
   DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES" \
+  DEPLOYMENT_WORKER_START_WAIT_SECONDS="$DEPLOYMENT_WORKER_START_WAIT_SECONDS" \
+  DEPLOYMENT_WORKER_START_RETRY_SECONDS="$DEPLOYMENT_WORKER_START_RETRY_SECONDS" \
     uv run python -m temporal.starter deployment-signal-with-start \
       "$BUILD_ID" \
-      "$deployment_name"
+      "$deployment_name"; then
+    rollback_failed_deployment_start "$deployment_name" "$previous_build_id" "$container_name"
+    exit 1
+  fi
 
   echo ""
 done

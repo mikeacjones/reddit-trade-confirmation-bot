@@ -25,6 +25,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 
 from temporalio.api.workflowservice.v1 import DescribeWorkerDeploymentRequest
 from temporalio.client import (
@@ -43,6 +44,7 @@ from temporalio.common import (
     WorkflowIDConflictPolicy,
 )
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from bot.config import (
     DEPLOYMENT_NAME,
@@ -264,29 +266,63 @@ async def signal_deployment_cleanup(
             os.getenv("DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES", "0")
         ),
     )
-    handle = await client.start_workflow(
-        DeploymentCleanupWorkflow.run,
-        args=[deployment_name, SUBREDDIT_NAME],
-        id=workflow_id,
-        task_queue=TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
-        start_signal="deployed",
-        start_signal_args=[build_id, health_check],
-        search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
-        static_summary=f"r/{SUBREDDIT_NAME} deployment cleanup",
-        versioning_override=PinnedVersioningOverride(
-            WorkerDeploymentVersion(
-                deployment_name=deployment_name,
-                build_id=build_id,
+    wait_seconds = int(os.getenv("DEPLOYMENT_WORKER_START_WAIT_SECONDS", "300"))
+    retry_seconds = int(os.getenv("DEPLOYMENT_WORKER_START_RETRY_SECONDS", "5"))
+    deadline = time.monotonic() + max(0, wait_seconds)
+    attempt = 1
+
+    while True:
+        try:
+            handle = await client.start_workflow(
+                DeploymentCleanupWorkflow.run,
+                args=[deployment_name, SUBREDDIT_NAME],
+                id=workflow_id,
+                task_queue=TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
+                start_signal="deployed",
+                start_signal_args=[build_id, health_check],
+                search_attributes=subreddit_search_attributes(SUBREDDIT_NAME),
+                static_summary=f"r/{SUBREDDIT_NAME} deployment cleanup",
+                versioning_override=PinnedVersioningOverride(
+                    WorkerDeploymentVersion(
+                        deployment_name=deployment_name,
+                        build_id=build_id,
+                    )
+                ),
             )
-        ),
-    )
+            break
+        except RPCError as err:
+            if not _is_worker_version_not_ready(err) or time.monotonic() >= deadline:
+                raise
+
+            logger.info(
+                (
+                    "Waiting for workflow poller for %s:%s on task queue %s "
+                    "(attempt %s): %s"
+                ),
+                deployment_name,
+                build_id,
+                TASK_QUEUE,
+                attempt,
+                err.message,
+            )
+            attempt += 1
+            await asyncio.sleep(max(1, retry_seconds))
+
     logger.info(
         "Signal-with-start sent to %s for deployment=%s build_id=%s run_id=%s",
         workflow_id,
         deployment_name,
         build_id,
         handle.result_run_id,
+    )
+
+
+def _is_worker_version_not_ready(err: RPCError) -> bool:
+    return (
+        err.status == RPCStatusCode.FAILED_PRECONDITION
+        and "Pinned version" in err.message
+        and "not present in task queue" in err.message
     )
 
 
