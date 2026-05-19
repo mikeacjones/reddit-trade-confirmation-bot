@@ -16,7 +16,7 @@ from temporal.shared import DEPLOYMENT_RETRY_POLICY
 CHECK_INTERVAL = timedelta(seconds=30)
 
 
-@workflow.defn(versioning_behavior=VersioningBehavior.AUTO_UPGRADE)
+@workflow.defn(versioning_behavior=VersioningBehavior.UNSPECIFIED)
 class DeploymentCleanupWorkflow:
     """Monitor Worker Deployment drainage and remove old Docker containers."""
 
