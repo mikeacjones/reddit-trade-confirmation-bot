@@ -14,8 +14,8 @@ class DeploymentHealthCheck:
     check_interval_seconds: int = 60
     metrics_url: str | None = None
     require_metrics: bool = False
-    required_completed_workflows: int = 1
-    required_completed_activities: int = 1
+    required_completed_workflows: int = 5
+    required_completed_activities: int = 5
     max_failed_workflows: int = 0
     max_sdk_workflow_failures: int = 0
     max_sdk_activity_failures: int = 0

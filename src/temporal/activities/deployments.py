@@ -114,24 +114,9 @@ def _enum_suffix(enum_wrapper: Any, value: int, prefix: str) -> str:
     return name
 
 
-def _deployment_version_build_id(info: Any) -> str | None:
-    if getattr(info, "assigned_build_id", ""):
-        return info.assigned_build_id
-    if getattr(info, "inherited_build_id", ""):
-        return info.inherited_build_id
-    stamp = getattr(info, "most_recent_worker_version_stamp", None)
-    if stamp is not None and getattr(stamp, "build_id", ""):
-        return stamp.build_id
-    versioning_info = getattr(info, "versioning_info", None)
-    if versioning_info is not None:
-        deployment_version = getattr(versioning_info, "deployment_version", None)
-        if deployment_version is not None and getattr(
-            deployment_version,
-            "build_id",
-            "",
-        ):
-            return deployment_version.build_id
-    return None
+def _visibility_query_string(value: str) -> str:
+    """Escape a string for use in a Temporal visibility query."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _version_summary_to_state(
@@ -271,7 +256,14 @@ async def _count_workflows_for_deployment(
 ) -> TemporalExecutionSummary:
     """Count recent workflows attributed to a deployment build by status."""
     client = await Client.connect(TEMPORAL_HOST, namespace=TEMPORAL_NAMESPACE)
-    query = f'ExecutionStatus = "{status}" AND CloseTime >= "{since_time_iso}"'
+    deployment_version = f"{deployment_name}:{build_id}"
+    query = (
+        f'ExecutionStatus = "{status}" '
+        f'AND CloseTime >= "{since_time_iso}" '
+        f'AND TemporalWorkerDeployment = "{_visibility_query_string(deployment_name)}" '
+        f'AND TemporalWorkerDeploymentVersion = '
+        f'"{_visibility_query_string(deployment_version)}"'
+    )
     next_page_token = b""
     workflow_ids: list[str] = []
 
@@ -286,12 +278,10 @@ async def _count_workflows_for_deployment(
             retry=True,
         )
 
-        for execution_info in response.executions:
-            if execution_info.worker_deployment_name != deployment_name:
-                continue
-            if _deployment_version_build_id(execution_info) != build_id:
-                continue
-            workflow_ids.append(execution_info.execution.workflow_id)
+        workflow_ids.extend(
+            execution_info.execution.workflow_id
+            for execution_info in response.executions
+        )
 
         next_page_token = response.next_page_token
         if not next_page_token:
