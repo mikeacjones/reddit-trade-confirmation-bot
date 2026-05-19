@@ -7,12 +7,12 @@ set -euo pipefail
 #
 # Required env vars:
 #   BOTS_DIR           - Root directory containing bot env files
-#   REGISTRY           - Docker registry host/name prefix
 #   BUILD_ID           - Git short SHA used as the image tag
 #   TEMPORAL_ADDRESS   - Temporal frontend address
 #   TEMPORAL_NAMESPACE - Temporal namespace
 #
 # Optional env vars:
+#   IMAGE_REPOSITORY                                  (default: reddit-bots/reddit-trade-confirmation-bot)
 #   DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS  (default: 1)
 #   DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES (default: 1)
 #   DEPLOYMENT_HEALTH_MAX_SECONDS                   (default: 0 / disabled)
@@ -25,7 +25,8 @@ set -euo pipefail
 #   DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES (default: 0)
 
 BOT_ENV_DIR="${BOTS_DIR}/trade-confirmation-bot"
-IMAGE="${REGISTRY}/reddit-trade-confirmation-bot:${BUILD_ID}"
+IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-reddit-bots/reddit-trade-confirmation-bot}"
+IMAGE="${IMAGE_REPOSITORY}:${BUILD_ID}"
 BOT_TYPE="trade-confirmation"
 CONTAINER_PREFIX="${DOCKER_CONTAINER_PREFIX:-reddit-bots-trade-confirmation}"
 DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS="${DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS:-1}"

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and optionally push the Docker image.
+# Build and tag the Docker image in the local Docker daemon.
 #
-# Required env vars:
-#   REGISTRY  - Docker registry namespace (e.g. docker.io/your-user)
+# Required env vars: none
 #
 # Optional env vars:
-#   PUSH_IMAGE - Push the built image after building (default: true)
+#   IMAGE_REPOSITORY - Local image repository name (default: reddit-bots/reddit-trade-confirmation-bot)
 
 BUILD_ID=$(git rev-parse --short HEAD)
-IMAGE="${REGISTRY}/reddit-trade-confirmation-bot:${BUILD_ID}"
-PUSH_IMAGE="${PUSH_IMAGE:-true}"
+IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-reddit-bots/reddit-trade-confirmation-bot}"
+IMAGE="${IMAGE_REPOSITORY}:${BUILD_ID}"
 
 echo "Building image: $IMAGE"
 docker build \
@@ -19,11 +18,7 @@ docker build \
   --label "com.reddit-bots.build-id=${BUILD_ID}" \
   -t "$IMAGE" .
 
-if [ "$PUSH_IMAGE" = "true" ]; then
-  docker push "$IMAGE"
-else
-  echo "Skipping image push because PUSH_IMAGE=$PUSH_IMAGE"
-fi
+echo "Image tagged locally: $IMAGE"
 
 echo "build_id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
 echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"

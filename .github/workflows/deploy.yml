@@ -12,7 +12,7 @@ jobs:
 
     env:
       BOTS_DIR: /home/runner/bots
-      REGISTRY: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
+      IMAGE_REPOSITORY: reddit-bots/reddit-trade-confirmation-bot
       TEMPORAL_ADDRESS: 192.168.101.240:7233
       TEMPORAL_NAMESPACE: reddit-bots
 
@@ -29,13 +29,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build and push image
+      - name: Build local image
         id: build
         run: .github/scripts/build.sh
 
