@@ -7,6 +7,7 @@ from temporalio.common import VersioningBehavior
 from temporalio.exceptions import ActivityError
 
 from temporal.deployment_models import (
+    DeploymentCleanupState,
     DeploymentHealthCheck,
     DeploymentRollbackResult,
     DockerCleanupResult,
@@ -15,6 +16,7 @@ from temporal.deployment_models import (
     TemporalExecutionSummary,
     WorkerDeploymentState,
 )
+from temporal.search_attributes import subreddit_search_attributes
 from temporal.shared import DEPLOYMENT_RETRY_POLICY
 
 CHECK_INTERVAL = timedelta(seconds=30)
@@ -83,10 +85,17 @@ class DeploymentCleanupWorkflow:
         }
 
     @workflow.run
-    async def run(self, deployment_name: str, subreddit_name: str) -> dict[str, object]:
+    async def run(
+        self,
+        deployment_name: str,
+        subreddit_name: str,
+        state: DeploymentCleanupState | None = None,
+    ) -> dict[str, object]:
         """Run cleanup until only one active deployment version remains."""
         self._deployment_name = deployment_name
         self._subreddit_name = subreddit_name
+        if state is not None:
+            self._restore_state(state)
 
         await workflow.wait_condition(lambda: self._current_build_id is not None)
 
@@ -95,6 +104,8 @@ class DeploymentCleanupWorkflow:
             if current_build_id is None:
                 await workflow.sleep(CHECK_INTERVAL)
                 continue
+
+            self._continue_as_new_if_suggested(deployment_name, subreddit_name)
 
             try:
                 deployment = await workflow.execute_activity(
@@ -115,6 +126,7 @@ class DeploymentCleanupWorkflow:
                 )
             except ActivityError as err:
                 workflow.logger.warning("Deployment inspection failed: %s", err)
+                self._continue_as_new_if_suggested(deployment_name, subreddit_name)
                 await workflow.sleep(CHECK_INTERVAL)
                 continue
 
@@ -131,6 +143,8 @@ class DeploymentCleanupWorkflow:
                 container.build_id for container in containers
             ]
 
+            self._continue_as_new_if_suggested(deployment_name, subreddit_name)
+
             if await self._rollback_if_unhealthy_or_not_ready(
                 deployment_name,
                 subreddit_name,
@@ -140,6 +154,7 @@ class DeploymentCleanupWorkflow:
                 return self.get_status()
 
             if self._health_check is not None and not self._health_passed:
+                self._continue_as_new_if_suggested(deployment_name, subreddit_name)
                 await workflow.sleep(self._check_interval())
                 continue
 
@@ -191,7 +206,64 @@ class DeploymentCleanupWorkflow:
                 )
                 return self.get_status()
 
+            self._continue_as_new_if_suggested(deployment_name, subreddit_name)
             await workflow.sleep(CHECK_INTERVAL)
+
+    def _restore_state(self, state: DeploymentCleanupState) -> None:
+        self._current_build_id = state.current_build_id
+        self._seen_build_ids = list(state.seen_build_ids)
+        self._last_active_build_ids = list(state.last_active_build_ids)
+        self._last_container_build_ids = list(state.last_container_build_ids)
+        self._cleanup_count = state.cleanup_count
+        self._health_check = state.health_check
+        self._monitor_started_at = state.monitor_started_at
+        self._monitor_deadline = state.monitor_deadline
+        self._baseline_metrics = state.baseline_metrics
+        self._health_passed = state.health_passed
+        self._last_completed_workflows = state.last_completed_workflows
+        self._last_completed_activities = state.last_completed_activities
+        self._rolled_back = state.rolled_back
+        self._rollback_reason = state.rollback_reason
+
+    def _snapshot_state(self) -> DeploymentCleanupState:
+        return DeploymentCleanupState(
+            current_build_id=self._current_build_id,
+            seen_build_ids=list(self._seen_build_ids),
+            last_active_build_ids=list(self._last_active_build_ids),
+            last_container_build_ids=list(self._last_container_build_ids),
+            cleanup_count=self._cleanup_count,
+            health_check=self._health_check,
+            monitor_started_at=self._monitor_started_at,
+            monitor_deadline=self._monitor_deadline,
+            baseline_metrics=self._baseline_metrics,
+            health_passed=self._health_passed,
+            last_completed_workflows=self._last_completed_workflows,
+            last_completed_activities=self._last_completed_activities,
+            rolled_back=self._rolled_back,
+            rollback_reason=self._rollback_reason,
+        )
+
+    def _continue_as_new_if_suggested(
+        self,
+        deployment_name: str,
+        subreddit_name: str,
+    ) -> None:
+        if not workflow.info().is_continue_as_new_suggested():
+            return
+
+        workflow.logger.info(
+            "Continuing deployment cleanup as new for %s",
+            deployment_name,
+        )
+        workflow.continue_as_new(
+            args=[
+                deployment_name,
+                subreddit_name,
+                self._snapshot_state(),
+            ],
+            search_attributes=subreddit_search_attributes(subreddit_name),
+            initial_versioning_behavior=workflow.ContinueAsNewVersioningBehavior.AUTO_UPGRADE,
+        )
 
     def _check_interval(self) -> timedelta:
         if self._health_check is None:

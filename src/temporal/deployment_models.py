@@ -1,6 +1,7 @@
 """Serializable models for worker deployment cleanup."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -57,6 +58,26 @@ class SdkMetricsSnapshot:
                 self.workflow_task_failed - baseline.workflow_task_failed,
             ),
         )
+
+
+@dataclass
+class DeploymentCleanupState:
+    """State carried across cleanup workflow continue-as-new runs."""
+
+    current_build_id: str | None = None
+    seen_build_ids: list[str] = field(default_factory=list)
+    last_active_build_ids: list[str] = field(default_factory=list)
+    last_container_build_ids: list[str] = field(default_factory=list)
+    cleanup_count: int = 0
+    health_check: DeploymentHealthCheck | None = None
+    monitor_started_at: datetime | None = None
+    monitor_deadline: datetime | None = None
+    baseline_metrics: SdkMetricsSnapshot | None = None
+    health_passed: bool = False
+    last_completed_workflows: int = 0
+    last_completed_activities: float = 0.0
+    rolled_back: bool = False
+    rollback_reason: str | None = None
 
 
 @dataclass
