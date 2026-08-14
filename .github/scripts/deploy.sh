@@ -176,16 +176,13 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
     echo "  Previous current build: <none>"
   fi
 
-  echo "  Ensuring Temporal Worker Deployment Version exists"
-  temporal_allow_exists worker deployment create-version \
-    --deployment-name "$deployment_name" \
-    --build-id "$BUILD_ID"
-
   if docker container inspect "$container_name" >/dev/null 2>&1; then
     echo "  Removing existing container with same name: $container_name"
     docker rm -f "$container_name"
   fi
 
+  # The self-managed SDK worker registers this deployment version when it polls.
+  # CLI create-version requires a server-managed compute provider configuration.
   echo "  Starting Docker container"
   docker run -d \
     --name "$container_name" \
