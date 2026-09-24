@@ -32,7 +32,7 @@ type commentPollingState struct {
 }
 
 // CommentPollingWorkflow continuously polls for new comments and processes them.
-func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmissionID, previousSubmissionID *string) (map[string]any, error) {
+func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmissionID, previousSubmissionID *string) (models.PollingStatus, error) {
 	state := &commentPollingState{
 		seenIDs:              seenIDs,
 		currentSubmissionID:  currentSubmissionID,
@@ -66,22 +66,13 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 			state.submissionChanged = true
 		}
 	})
-	_ = workflow.SetQueryHandler(ctx, "get_status", func() (map[string]any, error) {
-		var lastSeen any
-		if len(state.seenIDs) > 0 {
-			lastSeen = state.seenIDs[0]
-		}
-		return map[string]any{
-			"last_seen_id":    lastSeen,
-			"processed_count": state.processedCount,
-			"running":         !state.shouldStop,
-			"seen_ids_count":  len(state.seenIDs),
-		}, nil
+	_ = workflow.SetQueryHandler(ctx, "get_status", func() (models.PollingStatus, error) {
+		return pollingStatus(state, !state.shouldStop), nil
 	})
-	_ = workflow.SetQueryHandler(ctx, "get_submission_ids", func() (map[string]any, error) {
-		return map[string]any{
-			"current_submission_id":  state.currentSubmissionID,
-			"previous_submission_id": state.previousSubmissionID,
+	_ = workflow.SetQueryHandler(ctx, "get_submission_ids", func() (models.ActiveSubmissions, error) {
+		return models.ActiveSubmissions{
+			CurrentSubmissionID:  state.currentSubmissionID,
+			PreviousSubmissionID: state.previousSubmissionID,
 		}, nil
 	})
 
@@ -96,7 +87,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		}
 		var result models.ActiveSubmissions
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "fetch_active_submission_ids").Get(ctx, &result); err != nil {
-			return nil, err
+			return models.PollingStatus{}, err
 		}
 		state.currentSubmissionID = result.CurrentSubmissionID
 		state.previousSubmissionID = result.PreviousSubmissionID
@@ -110,7 +101,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		if info.GetContinueAsNewSuggested() || info.GetTargetWorkerDeploymentVersionChanged() {
 			logger.Info("Continuing as new")
 			_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
-			return nil, workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
+			return models.PollingStatus{}, workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
 				InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
 			}, CommentPollingWorkflow, state.seenIDs, state.currentSubmissionID, state.previousSubmissionID)
 		}
@@ -149,7 +140,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 			cancel()
 			err := fut.Get(ctx, nil)
 			if err != nil && !temporal.IsCanceledError(err) && !isCanceledCause(err) {
-				return nil, err
+				return models.PollingStatus{}, err
 			}
 			continue
 		}
@@ -157,7 +148,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 
 		var pollResult models.FetchCommentsResult
 		if err := fut.Get(ctx, &pollResult); err != nil {
-			return nil, err
+			return models.PollingStatus{}, err
 		}
 
 		if len(pollResult.ScannedIDs) > 0 {
@@ -238,20 +229,25 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 	}
 
 	logger.Info("Comment polling stopped")
-	var lastSeen any
+	return pollingStatus(state, false), nil
+}
+
+func pollingStatus(state *commentPollingState, running bool) models.PollingStatus {
+	var lastSeen *string
 	if len(state.seenIDs) > 0 {
-		lastSeen = state.seenIDs[0]
+		id := state.seenIDs[0]
+		lastSeen = &id
 	}
-	return map[string]any{
-		"last_seen_id":    lastSeen,
-		"processed_count": state.processedCount,
-		"running":         false,
-		"seen_ids_count":  len(state.seenIDs),
-	}, nil
+	return models.PollingStatus{
+		LastSeenID:     lastSeen,
+		ProcessedCount: state.processedCount,
+		Running:        running,
+		SeenIDsCount:   len(state.seenIDs),
+	}
 }
 
 // ProcessConfirmationWorkflow processes a single comment for trade confirmation.
-func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.CommentData) (map[string]any, error) {
+func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.CommentData) (models.ConfirmationResult, error) {
 	commentID := commentData.ID
 	author := commentData.AuthorName
 	logger := workflow.GetLogger(ctx)
@@ -278,12 +274,12 @@ func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.Commen
 		msg := fmt.Sprintf("[r/%s] Manual review required for comment %s by u/%s: %v",
 			SubredditName, commentID, author, err)
 		_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, nao), "send_pushover_notification", msg).Get(ctx, nil)
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 	return result, nil
 }
 
-func processConfirmation(ctx workflow.Context, commentData models.CommentData, save func(string, string) error) (map[string]any, error) {
+func processConfirmation(ctx workflow.Context, commentData models.CommentData, save func(string, string) error) (models.ConfirmationResult, error) {
 	commentID := commentData.ID
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -291,7 +287,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	}
 	var validation models.ValidationResult
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "validate_confirmation", commentData).Get(ctx, &validation); err != nil {
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 
 	if !validation.Valid {
@@ -299,12 +295,12 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 			reply := models.ReplyToCommentInput{
 				CommentID:    commentData.ID,
 				TemplateName: validation.Reason,
-				FormatArgs: map[string]any{
+				FormatArgs: map[string]string{
 					"id":                commentData.ID,
 					"body":              commentData.Body,
 					"author_name":       commentData.AuthorName,
-					"created_utc":       commentData.CreatedUTC,
-					"is_root":           commentData.IsRoot,
+					"created_utc":       fmt.Sprintf("%g", commentData.CreatedUTC),
+					"is_root":           fmt.Sprintf("%t", commentData.IsRoot),
 					"submission_id":     commentData.SubmissionID,
 					"parent_author":     validation.ParentAuthor,
 					"parent_comment_id": validation.ParentCommentID,
@@ -316,30 +312,30 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 				Summary:             reply.CommentID + ":" + reply.TemplateName,
 			}
 			if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", reply).Get(ctx, nil); err != nil {
-				return nil, err
+				return models.ConfirmationResult{}, err
 			}
 			if err := save(commentID, commentID); err != nil {
-				return nil, err
+				return models.ConfirmationResult{}, err
 			}
 			_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("rejected"))
-			return map[string]any{
-				"status":     "rejected",
-				"reason":     validation.Reason,
-				"comment_id": commentID,
+			return models.ConfirmationResult{
+				Status:    "rejected",
+				Reason:    validation.Reason,
+				CommentID: commentID,
 			}, nil
 		}
 		if err := save(commentID, commentID); err != nil {
-			return nil, err
+			return models.ConfirmationResult{}, err
 		}
 		_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("skipped"))
-		return map[string]any{
-			"status":     "skipped",
-			"comment_id": commentID,
+		return models.ConfirmationResult{
+			Status:    "skipped",
+			CommentID: commentID,
 		}, nil
 	}
 
 	if validation.ParentAuthor == "" || validation.Confirmer == "" {
-		return nil, fmt.Errorf("confirmed validation must include parent_author and confirmer")
+		return models.ConfirmationResult{}, fmt.Errorf("confirmed validation must include parent_author and confirmer")
 	}
 	key := rules.BuildConfirmationKey(validation.ParentCommentID, validation.Confirmer)
 	parentReq := models.FlairIncrementRequest{
@@ -368,15 +364,15 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 
 	var parentResult, confirmerResult models.FlairIncrementResult
 	if err := parentFut.Get(ctx, &parentResult); err != nil {
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 	if err := confirmerFut.Get(ctx, &confirmerResult); err != nil {
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 
 	if validation.ParentCommentID != "" {
 		if err := save(validation.ParentCommentID, validation.ParentCommentID); err != nil {
-			return nil, err
+			return models.ConfirmationResult{}, err
 		}
 	}
 
@@ -387,7 +383,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	confirmationReply := models.ReplyToCommentInput{
 		CommentID:    replyCommentID,
 		TemplateName: "trade_confirmation",
-		FormatArgs: map[string]any{
+		FormatArgs: map[string]string{
 			"comment_id":        replyCommentID,
 			"confirmer":         validation.Confirmer,
 			"parent_author":     validation.ParentAuthor,
@@ -403,10 +399,10 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		Summary:             confirmationReply.CommentID + ":" + confirmationReply.TemplateName,
 	}
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", confirmationReply).Get(ctx, nil); err != nil {
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 	if err := save(commentID, commentID); err != nil {
-		return nil, err
+		return models.ConfirmationResult{}, err
 	}
 
 	elapsed := workflow.Now(ctx).Sub(time.Unix(int64(commentData.CreatedUTC), 0).UTC())
@@ -415,13 +411,13 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		"confirmer", validation.Confirmer,
 		"elapsed", elapsed.Seconds())
 	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("confirmed"))
-	return map[string]any{
-		"status":              "confirmed",
-		"comment_id":          commentID,
-		"parent_author":       validation.ParentAuthor,
-		"confirmer":           validation.Confirmer,
-		"parent_new_flair":    parentResult.NewFlair,
-		"confirmer_new_flair": confirmerResult.NewFlair,
+	return models.ConfirmationResult{
+		Status:            "confirmed",
+		CommentID:         commentID,
+		ParentAuthor:      validation.ParentAuthor,
+		Confirmer:         validation.Confirmer,
+		ParentNewFlair:    parentResult.NewFlair,
+		ConfirmerNewFlair: confirmerResult.NewFlair,
 	}, nil
 }
 

@@ -146,14 +146,12 @@ func (a *Activities) CreateMonthlyPost(ctx context.Context, input models.CreateM
 		return "", err
 	}
 
-	body, err := templates.FormatString(postTmpl, map[string]any{
-		"bot_name":       botName,
-		"subreddit_name": a.Cfg.SubredditName,
-		"previous_month_submission": map[string]any{
-			"title":     prevTitle,
-			"permalink": prevPermalink,
-		},
-		"now": now.Format(time.RFC3339),
+	body, err := templates.FormatString(postTmpl, map[string]string{
+		"bot_name":                            botName,
+		"subreddit_name":                      a.Cfg.SubredditName,
+		"previous_month_submission.title":     prevTitle,
+		"previous_month_submission.permalink": prevPermalink,
+		"now":                                 now.Format(time.RFC3339),
 	})
 	if err != nil {
 		return "", err

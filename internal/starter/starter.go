@@ -16,6 +16,7 @@ import (
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/config"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/deployment"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
 	wf "github.com/mikeacjones/reddit-trade-confirmation-bot/internal/workflows"
 )
@@ -166,11 +167,11 @@ func triggerMonthlyPost(ctx context.Context, c client.Client, cfg config.Config)
 	if err != nil {
 		return err
 	}
-	var result map[string]any
+	var result models.MonthlyPostResult
 	if err := run.Get(ctx, &result); err != nil {
 		return err
 	}
-	slog.Info("Monthly post result", "result", result)
+	slog.Info("Monthly post result", "status", result.Status, "submission_id", result.SubmissionID)
 	return nil
 }
 
@@ -192,16 +193,16 @@ func showStatus(ctx context.Context, c client.Client, cfg config.Config) error {
 		slog.Info("Polling workflow not found", "error", err)
 	} else {
 		slog.Info("Polling workflow", "status", desc.WorkflowExecutionInfo.Status.String())
-		var status map[string]any
+		var status models.PollingStatus
 		if enc, err := c.QueryWorkflow(ctx, workflowID, "", "get_status"); err == nil {
 			if err := enc.Get(&status); err == nil {
-				slog.Info("Status", "processed", status["processed_count"], "last_seen", status["last_seen_id"])
+				slog.Info("Status", "processed", status.ProcessedCount, "last_seen", status.LastSeenID)
 			}
 		}
-		var subs map[string]any
+		var subs models.ActiveSubmissions
 		if enc, err := c.QueryWorkflow(ctx, workflowID, "", "get_submission_ids"); err == nil {
 			if err := enc.Get(&subs); err == nil {
-				slog.Info("Submissions", "current", subs["current_submission_id"], "previous", subs["previous_submission_id"])
+				slog.Info("Submissions", "current", subs.CurrentSubmissionID, "previous", subs.PreviousSubmissionID)
 			}
 		}
 	}

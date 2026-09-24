@@ -53,20 +53,38 @@ func (s SDKMetricsSnapshot) DeltaFrom(baseline SDKMetricsSnapshot) SDKMetricsSna
 
 // CleanupState is carried across cleanup workflow continue-as-new runs.
 type CleanupState struct {
-	CurrentBuildID         *string            `json:"current_build_id,omitempty"`
-	SeenBuildIDs           []string           `json:"seen_build_ids"`
-	LastActiveBuildIDs     []string           `json:"last_active_build_ids"`
-	LastContainerBuildIDs  []string           `json:"last_container_build_ids"`
-	CleanupCount           int                `json:"cleanup_count"`
-	HealthCheck            *HealthCheck       `json:"health_check,omitempty"`
-	MonitorStartedAt       *time.Time         `json:"monitor_started_at,omitempty"`
-	MonitorDeadline        *time.Time         `json:"monitor_deadline,omitempty"`
-	BaselineMetrics        *SDKMetricsSnapshot `json:"baseline_metrics,omitempty"`
-	HealthPassed           bool               `json:"health_passed"`
-	LastCompletedWorkflows int                `json:"last_completed_workflows"`
-	LastCompletedActivities float64           `json:"last_completed_activities"`
-	RolledBack             bool               `json:"rolled_back"`
-	RollbackReason         *string            `json:"rollback_reason,omitempty"`
+	CurrentBuildID          *string             `json:"current_build_id,omitempty"`
+	SeenBuildIDs            []string            `json:"seen_build_ids"`
+	LastActiveBuildIDs      []string            `json:"last_active_build_ids"`
+	LastContainerBuildIDs   []string            `json:"last_container_build_ids"`
+	CleanupCount            int                 `json:"cleanup_count"`
+	HealthCheck             *HealthCheck        `json:"health_check,omitempty"`
+	MonitorStartedAt        *time.Time          `json:"monitor_started_at,omitempty"`
+	MonitorDeadline         *time.Time          `json:"monitor_deadline,omitempty"`
+	BaselineMetrics         *SDKMetricsSnapshot `json:"baseline_metrics,omitempty"`
+	HealthPassed            bool                `json:"health_passed"`
+	LastCompletedWorkflows  int                 `json:"last_completed_workflows"`
+	LastCompletedActivities float64             `json:"last_completed_activities"`
+	RolledBack              bool                `json:"rolled_back"`
+	RollbackReason          *string             `json:"rollback_reason,omitempty"`
+}
+
+// CleanupStatus is the deployment-cleanup workflow result / get_status query.
+type CleanupStatus struct {
+	CurrentBuildID       *string    `json:"current_build_id"`
+	SeenBuildIDs         []string   `json:"seen_build_ids"`
+	DeploymentName       string     `json:"deployment_name"`
+	SubredditName        string     `json:"subreddit_name"`
+	ActiveBuildIDs       []string   `json:"active_build_ids"`
+	ContainerBuildIDs    []string   `json:"container_build_ids"`
+	CleanupCount         int        `json:"cleanup_count"`
+	MonitorStartedAt     *time.Time `json:"monitor_started_at"`
+	MonitorDeadline      *time.Time `json:"monitor_deadline"`
+	HealthPassed         bool       `json:"health_passed"`
+	CompletedWorkflows   int        `json:"completed_workflows"`
+	CompletedActivities  float64    `json:"completed_activities"`
+	RolledBack           bool       `json:"rolled_back"`
+	RollbackReason       *string    `json:"rollback_reason"`
 }
 
 // RollbackResult is the result of rolling a deployment back.

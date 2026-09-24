@@ -81,9 +81,9 @@ func (c *Client) ensureToken() error {
 	return nil
 }
 
-func (c *Client) do(method, path string, form url.Values, out any) error {
+func (c *Client) do(method, path string, form url.Values) ([]byte, error) {
 	if err := c.ensureToken(); err != nil {
-		return err
+		return nil, err
 	}
 	var body io.Reader
 	u := oauthBase + path
@@ -96,7 +96,7 @@ func (c *Client) do(method, path string, form url.Values, out any) error {
 	}
 	req, err := http.NewRequest(method, u, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.mu.Lock()
 	token := c.token
@@ -108,7 +108,7 @@ func (c *Client) do(method, path string, form url.Values, out any) error {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -117,24 +117,21 @@ func (c *Client) do(method, path string, form url.Values, out any) error {
 		c.mu.Lock()
 		c.token = ""
 		c.mu.Unlock()
-		return fmt.Errorf("reddit unauthorized: %s", raw)
+		return nil, fmt.Errorf("reddit unauthorized: %s", raw)
 	}
 	if resp.StatusCode == 403 {
-		return nonRetryable("Forbidden: %s", raw)
+		return nil, nonRetryable("Forbidden: " + string(raw))
 	}
 	if resp.StatusCode == 404 {
-		return nonRetryable("NotFound: %s", raw)
+		return nil, nonRetryable("NotFound: " + string(raw))
 	}
 	if resp.StatusCode == 400 {
-		return nonRetryable("BadRequest: %s", raw)
+		return nil, nonRetryable("BadRequest: " + string(raw))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("reddit %s %s: %s: %s", method, path, resp.Status, raw)
+		return nil, fmt.Errorf("reddit %s %s: %s: %s", method, path, resp.Status, raw)
 	}
-	if out == nil || len(raw) == 0 || string(raw) == "{}" {
-		return nil
-	}
-	return json.Unmarshal(raw, out)
+	return raw, nil
 }
 
 type nonRetryableError struct{ msg string }
@@ -142,8 +139,8 @@ type nonRetryableError struct{ msg string }
 func (e *nonRetryableError) Error() string { return e.msg }
 func (e *nonRetryableError) NonRetryable() {}
 
-func nonRetryable(format string, args ...any) error {
-	return &nonRetryableError{msg: fmt.Sprintf(format, args...)}
+func nonRetryable(msg string) error {
+	return &nonRetryableError{msg: msg}
 }
 
 // Thing is a Reddit API listing child.
@@ -170,7 +167,7 @@ type Comment struct {
 	LinkID     string  `json:"link_id"`
 	ParentID   string  `json:"parent_id"`
 	Saved      bool    `json:"saved"`
-	BannedBy   any     `json:"banned_by"`
+	BannedBy   json.RawMessage `json:"banned_by"`
 	AuthorFull *struct {
 		ID          string `json:"id"`
 		IsSuspended bool   `json:"is_suspended"`
@@ -189,7 +186,7 @@ func (c Comment) SubmissionID() string {
 
 // IsBanned returns whether the comment was removed by a mod.
 func (c Comment) IsBanned() bool {
-	return c.BannedBy != nil
+	return len(c.BannedBy) > 0 && string(c.BannedBy) != "null"
 }
 
 // Submission is a Reddit submission.
@@ -213,11 +210,15 @@ func (c *Client) BotUser() (name, id string, err error) {
 	}
 	c.mu.Unlock()
 
+	raw, err := c.do(http.MethodGet, "/api/v1/me", nil)
+	if err != nil {
+		return "", "", err
+	}
 	var me struct {
 		Name string `json:"name"`
 		ID   string `json:"id"`
 	}
-	if err := c.do(http.MethodGet, "/api/v1/me", nil, &me); err != nil {
+	if err := json.Unmarshal(raw, &me); err != nil {
 		return "", "", err
 	}
 	c.mu.Lock()
@@ -262,9 +263,13 @@ func (c *Client) IterComments(fn func(Comment, int) bool) error {
 		if after != "" {
 			form.Set("after", after)
 		}
-		var list listing
 		path := fmt.Sprintf("/r/%s/comments", c.cfg.SubredditName)
-		if err := c.do(http.MethodGet, path, form, &list); err != nil {
+		raw, err := c.do(http.MethodGet, path, form)
+		if err != nil {
+			return err
+		}
+		var list listing
+		if err := json.Unmarshal(raw, &list); err != nil {
 			return err
 		}
 		if len(list.Data.Children) == 0 {
@@ -293,8 +298,12 @@ func (c *Client) IterComments(fn func(Comment, int) bool) error {
 // GetComment fetches a comment by id.
 func (c *Client) GetComment(id string) (*Comment, error) {
 	form := url.Values{"id": {"t1_" + id}}
+	raw, err := c.do(http.MethodGet, "/api/info", form)
+	if err != nil {
+		return nil, err
+	}
 	var list listing
-	if err := c.do(http.MethodGet, "/api/info", form, &list); err != nil {
+	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, err
 	}
 	if len(list.Data.Children) == 0 {
@@ -309,7 +318,8 @@ func (c *Client) GetComment(id string) (*Comment, error) {
 
 // SaveComment marks a comment as saved.
 func (c *Client) SaveComment(id string) error {
-	return c.do(http.MethodPost, "/api/save", url.Values{"id": {"t1_" + id}}, nil)
+	_, err := c.do(http.MethodPost, "/api/save", url.Values{"id": {"t1_" + id}})
+	return err
 }
 
 // ReplyToComment posts a reply and returns the new comment id.
@@ -319,19 +329,23 @@ func (c *Client) ReplyToComment(parentID, text string) (string, string, error) {
 		"thing_id": {"t1_" + parentID},
 		"text":     {text},
 	}
+	raw, err := c.do(http.MethodPost, "/api/comment", form)
+	if err != nil {
+		return "", "", err
+	}
 	var resp struct {
 		JSON struct {
-			Errors []any `json:"errors"`
+			Errors []json.RawMessage `json:"errors"`
 			Data   struct {
 				Things []Thing `json:"things"`
 			} `json:"data"`
 		} `json:"json"`
 	}
-	if err := c.do(http.MethodPost, "/api/comment", form, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", "", err
 	}
 	if len(resp.JSON.Errors) > 0 {
-		return "", "", fmt.Errorf("comment reply errors: %v", resp.JSON.Errors)
+		return "", "", fmt.Errorf("comment reply errors: %s", joinRaw(resp.JSON.Errors))
 	}
 	if len(resp.JSON.Data.Things) == 0 {
 		return "", "", fmt.Errorf("confirmation reply failed to post")
@@ -351,11 +365,23 @@ func cmPermalink(cm Comment) string {
 	return "/comments/" + cm.ID
 }
 
+func joinRaw(parts []json.RawMessage) string {
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		out[i] = string(p)
+	}
+	return strings.Join(out, ", ")
+}
+
 // GetSubmission fetches a submission by id.
 func (c *Client) GetSubmission(id string) (*Submission, error) {
 	form := url.Values{"id": {"t3_" + id}}
+	raw, err := c.do(http.MethodGet, "/api/info", form)
+	if err != nil {
+		return nil, err
+	}
 	var list listing
-	if err := c.do(http.MethodGet, "/api/info", form, &list); err != nil {
+	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, err
 	}
 	if len(list.Data.Children) == 0 {
@@ -375,9 +401,13 @@ func (c *Client) BotSubmissions(limit int) ([]Submission, error) {
 		return nil, err
 	}
 	form := url.Values{"limit": {fmt.Sprintf("%d", limit)}}
-	var list listing
 	path := fmt.Sprintf("/user/%s/submitted", name)
-	if err := c.do(http.MethodGet, path, form, &list); err != nil {
+	raw, err := c.do(http.MethodGet, path, form)
+	if err != nil {
+		return nil, err
+	}
+	var list listing
+	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, err
 	}
 	out := make([]Submission, 0, len(list.Data.Children))
@@ -400,38 +430,45 @@ func (c *Client) StickySubmission(id string, state bool) error {
 	if state {
 		form.Set("num", "1") // top sticky
 	}
-	return c.do(http.MethodPost, "/api/set_subreddit_sticky", form, nil)
+	_, err := c.do(http.MethodPost, "/api/set_subreddit_sticky", form)
+	return err
 }
 
 // LockSubmission locks a submission.
 func (c *Client) LockSubmission(id string) error {
-	return c.do(http.MethodPost, "/api/lock", url.Values{"id": {"t3_" + id}}, nil)
+	_, err := c.do(http.MethodPost, "/api/lock", url.Values{"id": {"t3_" + id}})
+	return err
 }
 
 // SetSuggestedSort sets the suggested comment sort.
 func (c *Client) SetSuggestedSort(id, sort string) error {
-	return c.do(http.MethodPost, "/api/set_suggested_sort", url.Values{
+	_, err := c.do(http.MethodPost, "/api/set_suggested_sort", url.Values{
 		"id":   {"t3_" + id},
 		"sort": {sort},
-	}, nil)
+	})
+	return err
 }
 
 // SubmitSelfPost creates a text post and returns the new submission id and permalink.
 func (c *Client) SubmitSelfPost(title, text, flairID string) (string, string, error) {
 	form := url.Values{
-		"api_type":     {"json"},
-		"kind":         {"self"},
-		"sr":           {c.cfg.SubredditName},
-		"title":        {title},
-		"text":         {text},
-		"sendreplies":  {"false"},
+		"api_type":    {"json"},
+		"kind":        {"self"},
+		"sr":          {c.cfg.SubredditName},
+		"title":       {title},
+		"text":        {text},
+		"sendreplies": {"false"},
 	}
 	if flairID != "" {
 		form.Set("flair_id", flairID)
 	}
+	raw, err := c.do(http.MethodPost, "/api/submit", form)
+	if err != nil {
+		return "", "", err
+	}
 	var resp struct {
 		JSON struct {
-			Errors []any `json:"errors"`
+			Errors []json.RawMessage `json:"errors"`
 			Data   struct {
 				ID        string `json:"id"`
 				Name      string `json:"name"`
@@ -440,11 +477,11 @@ func (c *Client) SubmitSelfPost(title, text, flairID string) (string, string, er
 			} `json:"data"`
 		} `json:"json"`
 	}
-	if err := c.do(http.MethodPost, "/api/submit", form, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", "", err
 	}
 	if len(resp.JSON.Errors) > 0 {
-		return "", "", fmt.Errorf("submit errors: %v", resp.JSON.Errors)
+		return "", "", fmt.Errorf("submit errors: %s", joinRaw(resp.JSON.Errors))
 	}
 	id := resp.JSON.Data.ID
 	if id == "" {
@@ -456,12 +493,16 @@ func (c *Client) SubmitSelfPost(title, text, flairID string) (string, string, er
 // LoadWikiPage loads a wiki page markdown body.
 func (c *Client) LoadWikiPage(page string) (string, error) {
 	path := fmt.Sprintf("/r/%s/wiki/%s", c.cfg.SubredditName, page)
+	raw, err := c.do(http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
 	var resp struct {
 		Data struct {
 			ContentMD string `json:"content_md"`
 		} `json:"data"`
 	}
-	if err := c.do(http.MethodGet, path, nil, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", err
 	}
 	return resp.Data.ContentMD, nil
@@ -478,6 +519,10 @@ func (c *Client) Moderators() ([]string, error) {
 	c.mu.Unlock()
 
 	path := fmt.Sprintf("/r/%s/about/moderators", c.cfg.SubredditName)
+	raw, err := c.do(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
 	var resp struct {
 		Data struct {
 			Children []struct {
@@ -485,7 +530,7 @@ func (c *Client) Moderators() ([]string, error) {
 			} `json:"children"`
 		} `json:"data"`
 	}
-	if err := c.do(http.MethodGet, path, nil, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, err
 	}
 	mods := make([]string, 0, len(resp.Data.Children))
@@ -523,16 +568,20 @@ func (c *Client) FlairTemplates() ([]models.FlairTemplate, error) {
 	c.mu.Unlock()
 
 	path := fmt.Sprintf("/r/%s/api/user_flair_v2", c.cfg.SubredditName)
-	var raw []struct {
+	raw, err := c.do(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var items []struct {
 		ID      string `json:"id"`
 		Text    string `json:"text"`
 		ModOnly bool   `json:"mod_only"`
 	}
-	if err := c.do(http.MethodGet, path, nil, &raw); err != nil {
+	if err := json.Unmarshal(raw, &items); err != nil {
 		return nil, err
 	}
 	var templates []models.FlairTemplate
-	for _, t := range raw {
+	for _, t := range items {
 		min, max, ok := rules.ParseFlairRange(t.Text)
 		if !ok {
 			continue
@@ -555,13 +604,17 @@ func (c *Client) FlairTemplates() ([]models.FlairTemplate, error) {
 func (c *Client) GetUserFlair(username string) (*string, error) {
 	path := fmt.Sprintf("/r/%s/api/flairlist", c.cfg.SubredditName)
 	form := url.Values{"name": {username}, "limit": {"1"}}
+	raw, err := c.do(http.MethodGet, path, form)
+	if err != nil {
+		return nil, err
+	}
 	var resp struct {
 		Users []struct {
 			User      string  `json:"user"`
 			FlairText *string `json:"flair_text"`
 		} `json:"users"`
 	}
-	if err := c.do(http.MethodGet, path, form, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, err
 	}
 	if len(resp.Users) == 0 {
@@ -581,5 +634,6 @@ func (c *Client) SetUserFlair(username, text, templateID string) error {
 		form.Set("flair_template_id", templateID)
 	}
 	path := fmt.Sprintf("/r/%s/api/flair", c.cfg.SubredditName)
-	return c.do(http.MethodPost, path, form, nil)
+	_, err := c.do(http.MethodPost, path, form)
+	return err
 }

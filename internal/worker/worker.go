@@ -91,32 +91,24 @@ func register(w worker.Worker, acts *activities.Activities) {
 		VersioningBehavior: workflow.VersioningBehaviorUnspecified,
 	})
 
-	type named struct {
-		fn   any
-		name string
-	}
-	for _, a := range []named{
-		{acts.PollNewComments, "poll_new_comments"},
-		{acts.ValidateConfirmation, "validate_confirmation"},
-		{acts.MarkCommentSaved, "mark_comment_saved"},
-		{acts.ReplyToComment, "reply_to_comment"},
-		{acts.GetUserFlair, "get_user_flair"},
-		{acts.SetUserFlair, "set_user_flair"},
-		{acts.RequestFlairIncrement, "request_flair_increment"},
-		{acts.FetchActiveSubmissionIDs, "fetch_active_submission_ids"},
-		{acts.StickySubmission, "sticky_submission"},
-		{acts.UnstickySubmission, "unsticky_submission"},
-		{acts.LockSubmission, "lock_submission"},
-		{acts.CreateMonthlyPost, "create_monthly_post"},
-		{acts.SendPushoverNotification, "send_pushover_notification"},
-		{acts.DescribeWorkerDeployment, "describe_worker_deployment"},
-		{acts.CountFailedWorkflowsForDeployment, "count_failed_workflows_for_deployment"},
-		{acts.CountCompletedWorkflowsForDeployment, "count_completed_workflows_for_deployment"},
-		{acts.CollectSDKMetrics, "collect_sdk_metrics"},
-		{acts.ListDeploymentContainers, "list_deployment_containers"},
-		{acts.RollbackWorkerDeployment, "rollback_worker_deployment"},
-		{acts.RemoveDeploymentContainer, "remove_deployment_container"},
-	} {
-		w.RegisterActivityWithOptions(a.fn, activity.RegisterOptions{Name: a.name})
-	}
+	w.RegisterActivityWithOptions(acts.PollNewComments, activity.RegisterOptions{Name: "poll_new_comments"})
+	w.RegisterActivityWithOptions(acts.ValidateConfirmation, activity.RegisterOptions{Name: "validate_confirmation"})
+	w.RegisterActivityWithOptions(acts.MarkCommentSaved, activity.RegisterOptions{Name: "mark_comment_saved"})
+	w.RegisterActivityWithOptions(acts.ReplyToComment, activity.RegisterOptions{Name: "reply_to_comment"})
+	w.RegisterActivityWithOptions(acts.GetUserFlair, activity.RegisterOptions{Name: "get_user_flair"})
+	w.RegisterActivityWithOptions(acts.SetUserFlair, activity.RegisterOptions{Name: "set_user_flair"})
+	w.RegisterActivityWithOptions(acts.RequestFlairIncrement, activity.RegisterOptions{Name: "request_flair_increment"})
+	w.RegisterActivityWithOptions(acts.FetchActiveSubmissionIDs, activity.RegisterOptions{Name: "fetch_active_submission_ids"})
+	w.RegisterActivityWithOptions(acts.StickySubmission, activity.RegisterOptions{Name: "sticky_submission"})
+	w.RegisterActivityWithOptions(acts.UnstickySubmission, activity.RegisterOptions{Name: "unsticky_submission"})
+	w.RegisterActivityWithOptions(acts.LockSubmission, activity.RegisterOptions{Name: "lock_submission"})
+	w.RegisterActivityWithOptions(acts.CreateMonthlyPost, activity.RegisterOptions{Name: "create_monthly_post"})
+	w.RegisterActivityWithOptions(acts.SendPushoverNotification, activity.RegisterOptions{Name: "send_pushover_notification"})
+	w.RegisterActivityWithOptions(acts.DescribeWorkerDeployment, activity.RegisterOptions{Name: "describe_worker_deployment"})
+	w.RegisterActivityWithOptions(acts.CountFailedWorkflowsForDeployment, activity.RegisterOptions{Name: "count_failed_workflows_for_deployment"})
+	w.RegisterActivityWithOptions(acts.CountCompletedWorkflowsForDeployment, activity.RegisterOptions{Name: "count_completed_workflows_for_deployment"})
+	w.RegisterActivityWithOptions(acts.CollectSDKMetrics, activity.RegisterOptions{Name: "collect_sdk_metrics"})
+	w.RegisterActivityWithOptions(acts.ListDeploymentContainers, activity.RegisterOptions{Name: "list_deployment_containers"})
+	w.RegisterActivityWithOptions(acts.RollbackWorkerDeployment, activity.RegisterOptions{Name: "rollback_worker_deployment"})
+	w.RegisterActivityWithOptions(acts.RemoveDeploymentContainer, activity.RegisterOptions{Name: "remove_deployment_container"})
 }

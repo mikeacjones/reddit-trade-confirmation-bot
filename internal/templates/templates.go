@@ -93,7 +93,7 @@ func (l *Loader) loadLocal(name string) (string, error) {
 }
 
 // Format loads and formats a template, falling back to local file on format failure.
-func (l *Loader) Format(name string, args map[string]any) (string, error) {
+func (l *Loader) Format(name string, args map[string]string) (string, error) {
 	tmpl, err := l.Load(name)
 	if err != nil {
 		return "", err
@@ -114,41 +114,25 @@ func (l *Loader) Format(name string, args map[string]any) (string, error) {
 	return FormatString(local, args)
 }
 
-// FormatString replaces {key} and {obj.attr} placeholders like Python str.format.
-func FormatString(tmpl string, args map[string]any) (string, error) {
+// FormatString replaces {key} placeholders. Nested Python-style keys like
+// {previous_month_submission.title} are looked up as flat map keys.
+func FormatString(tmpl string, args map[string]string) (string, error) {
 	var firstErr error
 	out := placeholderRe.ReplaceAllStringFunc(tmpl, func(m string) string {
 		key := m[1 : len(m)-1]
-		val, err := resolve(args, key)
-		if err != nil {
+		val, ok := args[key]
+		if !ok {
 			if firstErr == nil {
-				firstErr = err
+				firstErr = fmt.Errorf("missing key %q", key)
 			}
 			return m
 		}
-		return fmt.Sprint(val)
+		return val
 	})
 	if firstErr != nil {
 		return "", firstErr
 	}
 	return out, nil
-}
-
-func resolve(args map[string]any, key string) (any, error) {
-	parts := strings.Split(key, ".")
-	var cur any = args
-	for _, part := range parts {
-		c, ok := cur.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("cannot resolve %q", key)
-		}
-		v, ok := c[part]
-		if !ok {
-			return nil, fmt.Errorf("missing key %q", key)
-		}
-		cur = v
-	}
-	return cur, nil
 }
 
 // FormatTitle applies strftime-like formatting for monthly post titles.

@@ -11,7 +11,7 @@ import (
 )
 
 // MonthlyPostWorkflow creates the monthly confirmation thread and locks the old one after 5 days.
-func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
+func MonthlyPostWorkflow(ctx workflow.Context) (models.MonthlyPostResult, error) {
 	logger := workflow.GetLogger(ctx)
 	logger.Info("Starting monthly post workflow", "subreddit", SubredditName)
 
@@ -33,7 +33,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	}
 	var active models.ActiveSubmissions
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "fetch_active_submission_ids").Get(ctx, &active); err != nil {
-		return nil, err
+		return models.MonthlyPostResult{}, err
 	}
 	oldSubmissionID := active.CurrentSubmissionID
 
@@ -50,7 +50,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cao), "create_monthly_post", models.CreateMonthlyPostInput{
 		PreviousSubmissionID: oldSubmissionID,
 	}).Get(ctx, &newSubmissionID); err != nil {
-		return nil, err
+		return models.MonthlyPostResult{}, err
 	}
 
 	// Signal polling workflow
@@ -67,7 +67,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 		Summary:             newSubmissionID,
 	}
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sao), "sticky_submission", newSubmissionID).Get(ctx, nil); err != nil {
-		return nil, err
+		return models.MonthlyPostResult{}, err
 	}
 
 	if oldSubmissionID != nil {
@@ -77,7 +77,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 			Summary:             *oldSubmissionID,
 		}
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, uao), "unsticky_submission", *oldSubmissionID).Get(ctx, nil); err != nil {
-			return nil, err
+			return models.MonthlyPostResult{}, err
 		}
 	}
 
@@ -93,7 +93,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 			Summary:             *oldSubmissionID,
 		}
 		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, lao), "lock_submission", *oldSubmissionID).Get(ctx, nil); err != nil {
-			return nil, err
+			return models.MonthlyPostResult{}, err
 		}
 		notify(
 			fmt.Sprintf("Locked previous submission %s for r/%s", *oldSubmissionID, SubredditName),
@@ -102,9 +102,9 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 		logger.Info("Locked previous submission", "id", *oldSubmissionID)
 	}
 
-	return map[string]any{
-		"status":               "created",
-		"submission_id":        newSubmissionID,
-		"locked_submission_id": oldSubmissionID,
+	return models.MonthlyPostResult{
+		Status:             "created",
+		SubmissionID:       newSubmissionID,
+		LockedSubmissionID: oldSubmissionID,
 	}, nil
 }

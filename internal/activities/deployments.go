@@ -53,7 +53,7 @@ func dockerSocketPath() string {
 	return defaultDockerSocket
 }
 
-func dockerRequest(method, path string, body any, okStatuses map[int]struct{}) (json.RawMessage, error) {
+func dockerRequest(method, path string, okStatuses map[int]struct{}) (json.RawMessage, error) {
 	socketPath := dockerSocketPath()
 	if _, err := os.Stat(socketPath); err != nil {
 		return nil, fmt.Errorf("Docker socket not found: %s", socketPath)
@@ -61,23 +61,12 @@ func dockerRequest(method, path string, body any, okStatuses map[int]struct{}) (
 	if okStatuses == nil {
 		okStatuses = map[int]struct{}{200: {}, 201: {}, 204: {}}
 	}
-	var bodyReader io.Reader
-	headers := http.Header{}
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		bodyReader = strings.NewReader(string(b))
-		headers.Set("Content-Type", "application/json")
-	}
 	transport := &http.Transport{Dial: unixDialer{path: socketPath}.Dial}
 	httpClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
-	req, err := http.NewRequest(method, "http://localhost"+path, bodyReader)
+	req, err := http.NewRequest(method, "http://localhost"+path, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header = headers
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -323,7 +312,7 @@ func parsePromLabels(raw string) map[string]string {
 func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentName string) ([]deployment.DockerContainerState, error) {
 	filters, _ := json.Marshal(map[string][]string{"label": {deploymentLabel + "=" + deploymentName}})
 	q := url.Values{"all": {"true"}, "filters": {string(filters)}}.Encode()
-	raw, err := dockerRequest("GET", "/containers/json?"+q, nil, nil)
+	raw, err := dockerRequest("GET", "/containers/json?"+q, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +370,7 @@ func (a *Activities) RollbackWorkerDeployment(ctx context.Context, deploymentNam
 	}
 	if failedContainer != nil {
 		ref := url.PathEscape(failedContainer.ID)
-		_, err := dockerRequest("DELETE", "/containers/"+ref+"?force=true&v=true", nil, map[int]struct{}{204: {}, 404: {}})
+		_, err := dockerRequest("DELETE", "/containers/"+ref+"?force=true&v=true", map[int]struct{}{204: {}, 404: {}})
 		if err != nil {
 			return result, err
 		}
@@ -394,14 +383,14 @@ func (a *Activities) RollbackWorkerDeployment(ctx context.Context, deploymentNam
 func (a *Activities) RemoveDeploymentContainer(ctx context.Context, container deployment.DockerContainerState) (deployment.DockerCleanupResult, error) {
 	result := deployment.DockerCleanupResult{ContainerName: container.Name}
 	ref := url.PathEscape(container.ID)
-	if _, err := dockerRequest("DELETE", "/containers/"+ref+"?force=true&v=true", nil, map[int]struct{}{204: {}, 404: {}}); err != nil {
+	if _, err := dockerRequest("DELETE", "/containers/"+ref+"?force=true&v=true", map[int]struct{}{204: {}, 404: {}}); err != nil {
 		return result, err
 	}
 	result.ContainerRemoved = true
 
 	filters, _ := json.Marshal(map[string][]string{"label": {buildIDLabel + "=" + container.BuildID}})
 	q := url.Values{"filters": {string(filters)}}.Encode()
-	raw, err := dockerRequest("POST", "/containers/prune?"+q, nil, nil)
+	raw, err := dockerRequest("POST", "/containers/prune?"+q, nil)
 	if err == nil && raw != nil {
 		var prune struct {
 			ContainersDeleted []string `json:"ContainersDeleted"`
@@ -412,7 +401,7 @@ func (a *Activities) RemoveDeploymentContainer(ctx context.Context, container de
 
 	if container.Image != nil && *container.Image != "" {
 		imgRef := url.PathEscape(*container.Image)
-		if _, err := dockerRequest("DELETE", "/images/"+imgRef+"?force=false&noprune=false", nil, map[int]struct{}{200: {}, 202: {}, 204: {}, 404: {}}); err != nil {
+		if _, err := dockerRequest("DELETE", "/images/"+imgRef+"?force=false&noprune=false", map[int]struct{}{200: {}, 202: {}, 204: {}, 404: {}}); err != nil {
 			msg := err.Error()
 			result.ImageRemoveError = &msg
 		} else {

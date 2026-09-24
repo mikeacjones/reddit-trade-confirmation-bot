@@ -88,9 +88,9 @@ type FetchCommentsResult struct {
 
 // ReplyToCommentInput is input for replying to a comment with a template.
 type ReplyToCommentInput struct {
-	CommentID    string         `json:"comment_id"`
-	TemplateName string         `json:"template_name"`
-	FormatArgs   map[string]any `json:"format_args,omitempty"`
+	CommentID    string            `json:"comment_id"`
+	TemplateName string            `json:"template_name"`
+	FormatArgs   map[string]string `json:"format_args,omitempty"`
 }
 
 // SetUserFlairInput is input for setting a user's flair.
@@ -114,4 +114,30 @@ type FlairTemplate struct {
 	ModOnly  bool
 	Min      int
 	Max      int
+}
+
+// PollingStatus is the comment-polling workflow result / get_status query.
+type PollingStatus struct {
+	LastSeenID     *string `json:"last_seen_id"`
+	ProcessedCount int     `json:"processed_count"`
+	Running        bool    `json:"running"`
+	SeenIDsCount   int     `json:"seen_ids_count"`
+}
+
+// ConfirmationResult is the process-confirmation workflow result.
+type ConfirmationResult struct {
+	Status            string  `json:"status"`
+	CommentID         string  `json:"comment_id"`
+	Reason            string  `json:"reason,omitempty"`
+	ParentAuthor      string  `json:"parent_author,omitempty"`
+	Confirmer         string  `json:"confirmer,omitempty"`
+	ParentNewFlair    *string `json:"parent_new_flair,omitempty"`
+	ConfirmerNewFlair *string `json:"confirmer_new_flair,omitempty"`
+}
+
+// MonthlyPostResult is the monthly-post workflow result.
+type MonthlyPostResult struct {
+	Status             string  `json:"status"`
+	SubmissionID       string  `json:"submission_id"`
+	LockedSubmissionID *string `json:"locked_submission_id"`
 }

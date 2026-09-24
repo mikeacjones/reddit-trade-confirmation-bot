@@ -14,7 +14,7 @@ import (
 var checkInterval = 30 * time.Second
 
 // DeploymentCleanupWorkflow monitors Worker Deployment drainage and removes old Docker containers.
-func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditName string, state *deployment.CleanupState) (map[string]any, error) {
+func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditName string, state *deployment.CleanupState) (deployment.CleanupStatus, error) {
 	if state == nil {
 		state = &deployment.CleanupState{}
 	}
@@ -52,7 +52,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 			state.RollbackReason = nil
 		}
 	})
-	_ = workflow.SetQueryHandler(ctx, "get_status", func() (map[string]any, error) {
+	_ = workflow.SetQueryHandler(ctx, "get_status", func() (deployment.CleanupStatus, error) {
 		return cleanupStatus(deploymentName, subredditName, state), nil
 	})
 
@@ -66,7 +66,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return nil, err
+			return deployment.CleanupStatus{}, err
 		}
 
 		ao := workflow.ActivityOptions{
@@ -79,7 +79,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		if err != nil {
 			workflow.GetLogger(ctx).Warn("Deployment inspection failed", "error", err)
 			if err2 := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err2 != nil {
-				return nil, err2
+				return deployment.CleanupStatus{}, err2
 			}
 			_ = workflow.Sleep(ctx, checkInterval)
 			continue
@@ -95,7 +95,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		if err != nil {
 			workflow.GetLogger(ctx).Warn("Deployment inspection failed", "error", err)
 			if err2 := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err2 != nil {
-				return nil, err2
+				return deployment.CleanupStatus{}, err2
 			}
 			_ = workflow.Sleep(ctx, checkInterval)
 			continue
@@ -117,12 +117,12 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return nil, err
+			return deployment.CleanupStatus{}, err
 		}
 
 		rolledBack, err := rollbackIfUnhealthy(ctx, deploymentName, subredditName, *currentBuildID, containers, state)
 		if err != nil {
-			return nil, err
+			return deployment.CleanupStatus{}, err
 		}
 		if rolledBack {
 			return cleanupStatus(deploymentName, subredditName, state), nil
@@ -130,7 +130,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 
 		if state.HealthCheck != nil && !state.HealthPassed {
 			if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-				return nil, err
+				return deployment.CleanupStatus{}, err
 			}
 			_ = workflow.Sleep(ctx, healthCheckInterval(state.HealthCheck))
 			continue
@@ -173,28 +173,28 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return nil, err
+			return deployment.CleanupStatus{}, err
 		}
 		_ = workflow.Sleep(ctx, checkInterval)
 	}
 }
 
-func cleanupStatus(deploymentName, subredditName string, state *deployment.CleanupState) map[string]any {
-	return map[string]any{
-		"current_build_id":     state.CurrentBuildID,
-		"seen_build_ids":       state.SeenBuildIDs,
-		"deployment_name":      deploymentName,
-		"subreddit_name":       subredditName,
-		"active_build_ids":     state.LastActiveBuildIDs,
-		"container_build_ids":  state.LastContainerBuildIDs,
-		"cleanup_count":        state.CleanupCount,
-		"monitor_started_at":   state.MonitorStartedAt,
-		"monitor_deadline":     state.MonitorDeadline,
-		"health_passed":        state.HealthPassed,
-		"completed_workflows":  state.LastCompletedWorkflows,
-		"completed_activities": state.LastCompletedActivities,
-		"rolled_back":          state.RolledBack,
-		"rollback_reason":      state.RollbackReason,
+func cleanupStatus(deploymentName, subredditName string, state *deployment.CleanupState) deployment.CleanupStatus {
+	return deployment.CleanupStatus{
+		CurrentBuildID:      state.CurrentBuildID,
+		SeenBuildIDs:        state.SeenBuildIDs,
+		DeploymentName:      deploymentName,
+		SubredditName:       subredditName,
+		ActiveBuildIDs:      state.LastActiveBuildIDs,
+		ContainerBuildIDs:   state.LastContainerBuildIDs,
+		CleanupCount:        state.CleanupCount,
+		MonitorStartedAt:    state.MonitorStartedAt,
+		MonitorDeadline:     state.MonitorDeadline,
+		HealthPassed:        state.HealthPassed,
+		CompletedWorkflows:  state.LastCompletedWorkflows,
+		CompletedActivities: state.LastCompletedActivities,
+		RolledBack:          state.RolledBack,
+		RollbackReason:      state.RollbackReason,
 	}
 }
 
