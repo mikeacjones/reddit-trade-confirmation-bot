@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -165,16 +164,4 @@ func FormatTitle(tmpl string, t time.Time) string {
 		"%%", "%",
 	)
 	return replacer.Replace(tmpl)
-}
-
-// ClearCache clears the template cache (for tests).
-func ClearCache() {
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	cache = map[string]string{}
-}
-
-// FormatFloat formats a float without trailing zeros when possible.
-func FormatFloat(f float64) string {
-	return strconv.FormatFloat(f, 'f', -1, 64)
 }

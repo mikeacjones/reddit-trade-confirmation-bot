@@ -20,21 +20,6 @@ var (
 	RedditConfirmationStatus = temporal.NewSearchAttributeKeyKeyword("RedditConfirmationStatus")
 )
 
-// SubredditSearchAttributes builds visibility attributes for subreddit-scoped workflows.
-func SubredditSearchAttributes(subredditName string) temporal.SearchAttributes {
-	return temporal.NewSearchAttributes(RedditSubreddit.ValueSet(subredditName))
-}
-
-// ConfirmationSearchAttributes builds visibility attributes for a confirmation workflow.
-func ConfirmationSearchAttributes(subredditName, commentID, submissionID, status string) temporal.SearchAttributes {
-	return temporal.NewSearchAttributes(
-		RedditSubreddit.ValueSet(subredditName),
-		RedditCommentID.ValueSet(commentID),
-		RedditSubmissionID.ValueSet(submissionID),
-		RedditConfirmationStatus.ValueSet(status),
-	)
-}
-
 // EnsureSearchAttributes creates required custom search attributes if missing.
 func EnsureSearchAttributes(ctx context.Context, c client.Client, namespace string) error {
 	keys := []struct {

@@ -9,6 +9,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/config"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
@@ -183,11 +184,8 @@ func (a *Activities) ValidateConfirmation(ctx context.Context, commentData model
 }
 
 // MarkCommentSaved marks a comment as saved/processed.
-func (a *Activities) MarkCommentSaved(ctx context.Context, commentID string) (bool, error) {
-	if err := a.Reddit.SaveComment(commentID); err != nil {
-		return false, err
-	}
-	return true, nil
+func (a *Activities) MarkCommentSaved(ctx context.Context, commentID string) error {
+	return a.Reddit.SaveComment(commentID)
 }
 
 // ReplyToComment replies using a template.
@@ -272,8 +270,10 @@ func (a *Activities) RequestFlairIncrement(ctx context.Context, request models.F
 		ID:                       wfID,
 		TaskQueue:                a.Cfg.TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		TypedSearchAttributes:    searchattr.SubredditSearchAttributes(a.Cfg.SubredditName),
-		StaticSummary:            "r/" + a.Cfg.SubredditName,
+		TypedSearchAttributes: temporal.NewSearchAttributes(
+			searchattr.RedditSubreddit.ValueSet(a.Cfg.SubredditName),
+		),
+		StaticSummary: "r/" + a.Cfg.SubredditName,
 	}, "FlairCoordinatorWorkflow")
 
 	handle, err := a.Temporal.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{

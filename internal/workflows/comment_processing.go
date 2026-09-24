@@ -10,8 +10,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/rules"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/services"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
@@ -22,13 +22,13 @@ var (
 )
 
 type commentPollingState struct {
-	shouldStop             bool
-	seenIDs                []string
-	processedCount         int
-	gapAlerted             bool
-	currentSubmissionID    *string
-	previousSubmissionID   *string
-	submissionChanged      bool
+	shouldStop           bool
+	seenIDs              []string
+	processedCount       int
+	gapAlerted           bool
+	currentSubmissionID  *string
+	previousSubmissionID *string
+	submissionChanged    bool
 }
 
 // CommentPollingWorkflow continuously polls for new comments and processes them.
@@ -91,7 +91,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 	if state.currentSubmissionID == nil {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 60 * time.Second,
-			RetryPolicy:         shared.RedditRetryPolicy(),
+			RetryPolicy:         shared.RedditRetry,
 			Summary:             "r/" + SubredditName,
 		}
 		var result models.ActiveSubmissions
@@ -131,7 +131,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 24 * time.Hour,
 			HeartbeatTimeout:    60 * time.Second,
-			RetryPolicy:         shared.RedditRetryPolicy(),
+			RetryPolicy:         shared.RedditRetry,
 		}
 		actCtx, cancel := workflow.WithCancel(workflow.WithActivityOptions(ctx, ao))
 		fut := workflow.ExecuteActivity(actCtx, "poll_new_comments", models.FetchCommentsInput{
@@ -173,7 +173,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 			if !state.gapAlerted {
 				nao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.PushoverRetryPolicy(),
+					RetryPolicy:         shared.PushoverRetry,
 					Summary:             fmt.Sprintf("listing-gap:%d", pollResult.ScannedCount),
 				}
 				msg := fmt.Sprintf(
@@ -192,13 +192,13 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 				commentData.SubmissionID == *state.previousSubmissionID {
 				sao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.RedditRetryPolicy(),
+					RetryPolicy:         shared.RedditRetry,
 					Summary:             commentData.ID,
 				}
 				_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sao), "mark_comment_saved", commentData.ID).Get(ctx, nil)
 				rao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.RedditRetryPolicy(),
+					RetryPolicy:         shared.RedditRetry,
 					Summary:             commentData.ID + ":old_confirmation_thread",
 				}
 				_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", models.ReplyToCommentInput{
@@ -211,12 +211,15 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 
 			childID := "process-" + commentData.ID
 			childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-				WorkflowID:            childID,
-				TaskQueue:             TaskQueue,
-				ParentClosePolicy:     enumspb.PARENT_CLOSE_POLICY_ABANDON,
+				WorkflowID:        childID,
+				TaskQueue:         TaskQueue,
+				ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
 				WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY,
-				TypedSearchAttributes: searchattr.ConfirmationSearchAttributes(
-					SubredditName, commentData.ID, commentData.SubmissionID, "processing",
+				TypedSearchAttributes: temporal.NewSearchAttributes(
+					searchattr.RedditSubreddit.ValueSet(SubredditName),
+					searchattr.RedditCommentID.ValueSet(commentData.ID),
+					searchattr.RedditSubmissionID.ValueSet(commentData.SubmissionID),
+					searchattr.RedditConfirmationStatus.ValueSet("processing"),
 				),
 				StaticSummary: commentData.ID + ":u/" + commentData.AuthorName,
 			})
@@ -257,7 +260,7 @@ func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.Commen
 	save := func(id, summary string) error {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.RedditRetryPolicy(),
+			RetryPolicy:         shared.RedditRetry,
 			Summary:             summary,
 		}
 		return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "mark_comment_saved", id).Get(ctx, nil)
@@ -269,7 +272,7 @@ func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.Commen
 		logger.Error("Manual review required", "comment", commentID, "author", author, "error", err)
 		nao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.PushoverRetryPolicy(),
+			RetryPolicy:         shared.PushoverRetry,
 			Summary:             "manual-review:" + commentID,
 		}
 		msg := fmt.Sprintf("[r/%s] Manual review required for comment %s by u/%s: %v",
@@ -284,7 +287,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	commentID := commentData.ID
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicy(),
+		RetryPolicy:         shared.RedditRetry,
 	}
 	var validation models.ValidationResult
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "validate_confirmation", commentData).Get(ctx, &validation); err != nil {
@@ -292,14 +295,27 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	}
 
 	if !validation.Valid {
-		reply := services.BuildInvalidReply(commentData, validation)
-		if reply != nil {
+		if validation.Reason != "" {
+			reply := models.ReplyToCommentInput{
+				CommentID:    commentData.ID,
+				TemplateName: validation.Reason,
+				FormatArgs: map[string]any{
+					"id":                commentData.ID,
+					"body":              commentData.Body,
+					"author_name":       commentData.AuthorName,
+					"created_utc":       commentData.CreatedUTC,
+					"is_root":           commentData.IsRoot,
+					"submission_id":     commentData.SubmissionID,
+					"parent_author":     validation.ParentAuthor,
+					"parent_comment_id": validation.ParentCommentID,
+				},
+			}
 			rao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetryPolicy(),
+				RetryPolicy:         shared.RedditRetry,
 				Summary:             reply.CommentID + ":" + reply.TemplateName,
 			}
-			if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", *reply).Get(ctx, nil); err != nil {
+			if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", reply).Get(ctx, nil); err != nil {
 				return nil, err
 			}
 			if err := save(commentID, commentID); err != nil {
@@ -322,14 +338,24 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		}, nil
 	}
 
-	parentReq, confirmerReq, err := services.BuildFlairIncrementRequests(validation)
-	if err != nil {
-		return nil, err
+	if validation.ParentAuthor == "" || validation.Confirmer == "" {
+		return nil, fmt.Errorf("confirmed validation must include parent_author and confirmer")
+	}
+	key := rules.BuildConfirmationKey(validation.ParentCommentID, validation.Confirmer)
+	parentReq := models.FlairIncrementRequest{
+		Username:  validation.ParentAuthor,
+		RequestID: key + ":parent",
+		Delta:     1,
+	}
+	confirmerReq := models.FlairIncrementRequest{
+		Username:  validation.Confirmer,
+		RequestID: key + ":confirmer",
+		Delta:     1,
 	}
 
 	fao := workflow.ActivityOptions{
 		StartToCloseTimeout: 120 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicy(),
+		RetryPolicy:         shared.RedditRetry,
 	}
 	parentFut := workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, fao),
@@ -354,10 +380,26 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		}
 	}
 
-	confirmationReply := services.BuildConfirmationReply(commentID, validation, parentResult, confirmerResult)
+	replyCommentID := validation.ReplyToCommentID
+	if replyCommentID == "" {
+		replyCommentID = commentID
+	}
+	confirmationReply := models.ReplyToCommentInput{
+		CommentID:    replyCommentID,
+		TemplateName: "trade_confirmation",
+		FormatArgs: map[string]any{
+			"comment_id":        replyCommentID,
+			"confirmer":         validation.Confirmer,
+			"parent_author":     validation.ParentAuthor,
+			"old_comment_flair": flairOrUnknown(confirmerResult.OldFlair),
+			"new_comment_flair": flairOrUnknown(confirmerResult.NewFlair),
+			"old_parent_flair":  flairOrUnknown(parentResult.OldFlair),
+			"new_parent_flair":  flairOrUnknown(parentResult.NewFlair),
+		},
+	}
 	rao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicy(),
+		RetryPolicy:         shared.RedditRetry,
 		Summary:             confirmationReply.CommentID + ":" + confirmationReply.TemplateName,
 	}
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", confirmationReply).Get(ctx, nil); err != nil {
@@ -373,7 +415,21 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		"confirmer", validation.Confirmer,
 		"elapsed", elapsed.Seconds())
 	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("confirmed"))
-	return services.BuildConfirmedResult(commentID, validation, parentResult, confirmerResult), nil
+	return map[string]any{
+		"status":              "confirmed",
+		"comment_id":          commentID,
+		"parent_author":       validation.ParentAuthor,
+		"confirmer":           validation.Confirmer,
+		"parent_new_flair":    parentResult.NewFlair,
+		"confirmer_new_flair": confirmerResult.NewFlair,
+	}, nil
+}
+
+func flairOrUnknown(p *string) string {
+	if p == nil || *p == "" {
+		return "unknown"
+	}
+	return *p
 }
 
 func isCanceledCause(err error) bool {

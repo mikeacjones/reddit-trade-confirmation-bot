@@ -81,7 +81,6 @@ internal/
   workflows/             Temporal workflows
   reddit/                Minimal Reddit OAuth HTTP client (stdlib only)
   rules/                 Pure confirmation / flair business rules
-  services/              Reply / flair request builders
   config/                Environment config
   metrics/               Stdlib Prometheus exposition for SDK metrics
 mdtemplates/             Default reply / post templates

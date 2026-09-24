@@ -12,6 +12,7 @@ import (
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/config"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/rules"
 )
 
 const (
@@ -532,38 +533,22 @@ func (c *Client) FlairTemplates() ([]models.FlairTemplate, error) {
 	}
 	var templates []models.FlairTemplate
 	for _, t := range raw {
-		m := rulesFlairMatch(t.Text)
-		if m == nil {
+		min, max, ok := rules.ParseFlairRange(t.Text)
+		if !ok {
 			continue
 		}
 		templates = append(templates, models.FlairTemplate{
 			ID:       t.ID,
 			Template: t.Text,
 			ModOnly:  t.ModOnly,
-			Min:      m[0],
-			Max:      m[1],
+			Min:      min,
+			Max:      max,
 		})
 	}
 	c.mu.Lock()
 	c.flairTmpls = templates
 	c.mu.Unlock()
 	return templates, nil
-}
-
-func rulesFlairMatch(text string) []int {
-	// inline to avoid import cycle with rules — duplicate small parse
-	const prefix = "Trades: "
-	idx := strings.Index(text, prefix)
-	if idx < 0 {
-		return nil
-	}
-	rest := text[idx+len(prefix):]
-	var min, max int
-	n, err := fmt.Sscanf(rest, "%d-%d", &min, &max)
-	if err != nil || n != 2 {
-		return nil
-	}
-	return []int{min, max}
 }
 
 // GetUserFlair returns flair text for a user.

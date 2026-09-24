@@ -65,11 +65,6 @@ type ActiveSubmissions struct {
 	PreviousSubmissionID *string `json:"previous_submission_id"`
 }
 
-// SubmissionInput is input for single-submission operations.
-type SubmissionInput struct {
-	SubmissionID string `json:"submission_id"`
-}
-
 // CreateMonthlyPostInput is input for creating a monthly confirmation post.
 type CreateMonthlyPostInput struct {
 	PreviousSubmissionID *string `json:"previous_submission_id"`

@@ -54,6 +54,16 @@ func TestFormatFlairFromTemplate(t *testing.T) {
 	}
 }
 
+func TestParseFlairRange(t *testing.T) {
+	min, max, ok := rules.ParseFlairRange("Collector | Trades: 11-50")
+	if !ok || min != 11 || max != 50 {
+		t.Fatalf("got %d %d %v", min, max, ok)
+	}
+	if _, _, ok := rules.ParseFlairRange("Trusted Trader"); ok {
+		t.Fatal("expected untracked")
+	}
+}
+
 func TestShouldIncludeComment(t *testing.T) {
 	if !rules.ShouldIncludeComment("prev1", "cur1", true, "looking to trade") {
 		t.Fatal("root on previous should include")

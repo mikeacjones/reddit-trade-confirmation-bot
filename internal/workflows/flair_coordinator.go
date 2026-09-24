@@ -50,7 +50,7 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 
 			ao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetryPolicy(),
+				RetryPolicy:         shared.RedditRetry,
 				Summary:             req.Username,
 			}
 			var current models.UserFlairResult
@@ -74,7 +74,7 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 
 			sao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetryPolicy(),
+				RetryPolicy:         shared.RedditRetry,
 				Summary:             fmt.Sprintf("%s:%d", req.Username, targetCount),
 			}
 			var setResult models.FlairUpdateResult

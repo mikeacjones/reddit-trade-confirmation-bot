@@ -2,6 +2,7 @@ package rules
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
@@ -11,9 +12,6 @@ var (
 	flairPattern         = regexp.MustCompile(`Trades: (\d+)`)
 	flairTemplatePattern = regexp.MustCompile(`Trades: ((\d+)-(\d+))`)
 )
-
-// FlairTemplatePattern is exported for flair template loading.
-var FlairTemplatePattern = flairTemplatePattern
 
 // IsConfirmingTrade checks if a comment body is confirming a trade.
 func IsConfirmingTrade(commentBody string) bool {
@@ -35,11 +33,25 @@ func ParseTradeCount(flairText *string) (count int, tracked bool) {
 	if match == nil {
 		return 0, false
 	}
-	var n int
-	for _, c := range match[1] {
-		n = n*10 + int(c-'0')
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
 	}
 	return n, true
+}
+
+// ParseFlairRange extracts the min-max trade range from a flair template text.
+func ParseFlairRange(text string) (min, max int, ok bool) {
+	match := flairTemplatePattern.FindStringSubmatch(text)
+	if match == nil {
+		return 0, 0, false
+	}
+	min, err1 := strconv.Atoi(match[2])
+	max, err2 := strconv.Atoi(match[3])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return min, max, true
 }
 
 // FormatFlairFromTemplate replaces the tracked trade range with the exact count.
@@ -50,7 +62,7 @@ func FormatFlairFromTemplate(flairTemplate string, count int) string {
 	}
 	// group 1 is the "min-max" span
 	start, end := loc[2], loc[3]
-	return flairTemplate[:start] + itoa(count) + flairTemplate[end:]
+	return flairTemplate[:start] + strconv.Itoa(count) + flairTemplate[end:]
 }
 
 // ShouldIncludeComment decides whether a polled comment should be processed.
@@ -144,18 +156,4 @@ func FindFlairTemplate(templates []models.FlairTemplate, tradeCount int, isModer
 		}
 	}
 	return nil
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

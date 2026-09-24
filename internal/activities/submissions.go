@@ -41,48 +41,48 @@ func (a *Activities) FetchActiveSubmissionIDs(ctx context.Context) (models.Activ
 }
 
 // StickySubmission stickies a submission (idempotent).
-func (a *Activities) StickySubmission(ctx context.Context, input models.SubmissionInput) (bool, error) {
-	sub, err := a.Reddit.GetSubmission(input.SubmissionID)
+func (a *Activities) StickySubmission(ctx context.Context, submissionID string) error {
+	sub, err := a.Reddit.GetSubmission(submissionID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if sub != nil && !sub.Stickied {
-		if err := a.Reddit.StickySubmission(input.SubmissionID, true); err != nil {
-			return false, err
+		if err := a.Reddit.StickySubmission(submissionID, true); err != nil {
+			return err
 		}
 		activity.GetLogger(ctx).Info("Stickied", "url", "https://reddit.com"+sub.Permalink)
 	}
-	return true, nil
+	return nil
 }
 
 // UnstickySubmission unstickies a submission (idempotent).
-func (a *Activities) UnstickySubmission(ctx context.Context, input models.SubmissionInput) (bool, error) {
-	sub, err := a.Reddit.GetSubmission(input.SubmissionID)
+func (a *Activities) UnstickySubmission(ctx context.Context, submissionID string) error {
+	sub, err := a.Reddit.GetSubmission(submissionID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if sub != nil && sub.Stickied {
-		if err := a.Reddit.StickySubmission(input.SubmissionID, false); err != nil {
-			return false, err
+		if err := a.Reddit.StickySubmission(submissionID, false); err != nil {
+			return err
 		}
 		activity.GetLogger(ctx).Info("Unstickied", "url", "https://reddit.com"+sub.Permalink)
 	}
-	return true, nil
+	return nil
 }
 
 // LockSubmission locks a submission (idempotent).
-func (a *Activities) LockSubmission(ctx context.Context, input models.SubmissionInput) (bool, error) {
-	sub, err := a.Reddit.GetSubmission(input.SubmissionID)
+func (a *Activities) LockSubmission(ctx context.Context, submissionID string) error {
+	sub, err := a.Reddit.GetSubmission(submissionID)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if sub != nil && !sub.Locked {
-		if err := a.Reddit.LockSubmission(input.SubmissionID); err != nil {
-			return false, err
+		if err := a.Reddit.LockSubmission(submissionID); err != nil {
+			return err
 		}
 		activity.GetLogger(ctx).Info("Locked", "url", "https://reddit.com"+sub.Permalink)
 	}
-	return true, nil
+	return nil
 }
 
 // CreateMonthlyPost creates a monthly confirmation thread (idempotent).
@@ -171,12 +171,12 @@ func (a *Activities) CreateMonthlyPost(ctx context.Context, input models.CreateM
 }
 
 // SendPushoverNotification sends a Pushover notification (no-op if unconfigured).
-func (a *Activities) SendPushoverNotification(ctx context.Context, message string) (bool, error) {
+func (a *Activities) SendPushoverNotification(ctx context.Context, message string) error {
 	appToken := os.Getenv("PUSHOVER_APP_TOKEN")
 	userToken := os.Getenv("PUSHOVER_USER_TOKEN")
 	if appToken == "" || userToken == "" {
 		activity.GetLogger(ctx).Debug("Pushover not configured, skipping notification")
-		return true, nil
+		return nil
 	}
 	form := url.Values{
 		"token":   {appToken},
@@ -185,13 +185,13 @@ func (a *Activities) SendPushoverNotification(ctx context.Context, message strin
 	}
 	resp, err := http.PostForm("https://api.pushover.net/1/messages.json", form)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return false, fmt.Errorf("Pushover notification failed with status %d", resp.StatusCode)
+		return fmt.Errorf("Pushover notification failed with status %d", resp.StatusCode)
 	}
-	return true, nil
+	return nil
 }
 
 func ptrStr(p *string) string {

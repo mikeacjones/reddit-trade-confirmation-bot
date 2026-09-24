@@ -20,12 +20,6 @@ import (
 	wf "github.com/mikeacjones/reddit-trade-confirmation-bot/internal/workflows"
 )
 
-// DeployedSignal is the payload for the deployment cleanup "deployed" signal.
-type DeployedSignal struct {
-	BuildID     string                  `json:"build_id"`
-	HealthCheck *deployment.HealthCheck `json:"health_check"`
-}
-
 // Run dispatches a starter CLI command.
 func Run(args []string) error {
 	if len(args) < 1 {
@@ -81,6 +75,10 @@ func Run(args []string) error {
 	}
 }
 
+func subredditAttrs(name string) temporal.SearchAttributes {
+	return temporal.NewSearchAttributes(searchattr.RedditSubreddit.ValueSet(name))
+}
+
 func setupSchedules(ctx context.Context, c client.Client, cfg config.Config) error {
 	if err := searchattr.EnsureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
 		return err
@@ -92,7 +90,7 @@ func setupSchedules(ctx context.Context, c client.Client, cfg config.Config) err
 		ID:                    "monthly-post-" + cfg.SubredditName,
 		Workflow:              "MonthlyPostWorkflow",
 		TaskQueue:             cfg.TaskQueue,
-		TypedSearchAttributes: searchattr.SubredditSearchAttributes(cfg.SubredditName),
+		TypedSearchAttributes: subredditAttrs(cfg.SubredditName),
 		StaticSummary:         "r/" + cfg.SubredditName,
 	}
 	spec := client.ScheduleSpec{
@@ -140,7 +138,7 @@ func startPolling(ctx context.Context, c client.Client, cfg config.Config) error
 	_, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                    workflowID,
 		TaskQueue:             cfg.TaskQueue,
-		TypedSearchAttributes: searchattr.SubredditSearchAttributes(cfg.SubredditName),
+		TypedSearchAttributes: subredditAttrs(cfg.SubredditName),
 		StaticSummary:         "r/" + cfg.SubredditName,
 	}, "CommentPollingWorkflow", []string(nil), (*string)(nil), (*string)(nil))
 	if err != nil {
@@ -162,7 +160,7 @@ func triggerMonthlyPost(ctx context.Context, c client.Client, cfg config.Config)
 	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                    "monthly-post-manual-" + cfg.SubredditName,
 		TaskQueue:             cfg.TaskQueue,
-		TypedSearchAttributes: searchattr.SubredditSearchAttributes(cfg.SubredditName),
+		TypedSearchAttributes: subredditAttrs(cfg.SubredditName),
 		StaticSummary:         "r/" + cfg.SubredditName,
 	}, "MonthlyPostWorkflow")
 	if err != nil {
@@ -249,7 +247,7 @@ func signalDeploymentCleanup(ctx context.Context, c client.Client, cfg config.Co
 		healthCheck.MetricsURL = &v
 	}
 
-	signal := DeployedSignal{BuildID: buildID, HealthCheck: healthCheck}
+	signal := deployment.DeployedSignal{BuildID: buildID, HealthCheck: healthCheck}
 	waitSeconds := envInt("DEPLOYMENT_WORKER_START_WAIT_SECONDS", 300)
 	retrySeconds := envInt("DEPLOYMENT_WORKER_START_RETRY_SECONDS", 5)
 	deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
@@ -261,7 +259,7 @@ func signalDeploymentCleanup(ctx context.Context, c client.Client, cfg config.Co
 				ID:                       workflowID,
 				TaskQueue:                cfg.TaskQueue,
 				WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING,
-				TypedSearchAttributes:    searchattr.SubredditSearchAttributes(cfg.SubredditName),
+				TypedSearchAttributes:    subredditAttrs(cfg.SubredditName),
 				StaticSummary:            "r/" + cfg.SubredditName + " deployment cleanup",
 				VersioningOverride: &client.PinnedVersioningOverride{
 					Version: worker.WorkerDeploymentVersion{

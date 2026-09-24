@@ -18,7 +18,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	notify := func(msg, summary string) {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.PushoverRetryPolicy(),
+			RetryPolicy:         shared.PushoverRetry,
 			Summary:             summary,
 		}
 		_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "send_pushover_notification", msg).Get(ctx, nil)
@@ -28,7 +28,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicyConservative(),
+		RetryPolicy:         shared.RedditRetryConservative,
 		Summary:             "r/" + SubredditName,
 	}
 	var active models.ActiveSubmissions
@@ -43,7 +43,7 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	}
 	cao := workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicyConservative(),
+		RetryPolicy:         shared.RedditRetryConservative,
 		Summary:             summary,
 	}
 	var newSubmissionID string
@@ -63,24 +63,20 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 
 	sao := workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy:         shared.RedditRetryPolicyConservative(),
+		RetryPolicy:         shared.RedditRetryConservative,
 		Summary:             newSubmissionID,
 	}
-	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sao), "sticky_submission", models.SubmissionInput{
-		SubmissionID: newSubmissionID,
-	}).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sao), "sticky_submission", newSubmissionID).Get(ctx, nil); err != nil {
 		return nil, err
 	}
 
 	if oldSubmissionID != nil {
 		uao := workflow.ActivityOptions{
 			StartToCloseTimeout: 60 * time.Second,
-			RetryPolicy:         shared.RedditRetryPolicyConservative(),
+			RetryPolicy:         shared.RedditRetryConservative,
 			Summary:             *oldSubmissionID,
 		}
-		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, uao), "unsticky_submission", models.SubmissionInput{
-			SubmissionID: *oldSubmissionID,
-		}).Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, uao), "unsticky_submission", *oldSubmissionID).Get(ctx, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -89,16 +85,14 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	logger.Info("Monthly post created", "id", newSubmissionID)
 
 	if oldSubmissionID != nil {
-		_ = workflow.Sleep(ctx, 5*24*time.Hour) // TimerOptions Summary not always available; plain sleep
+		_ = workflow.Sleep(ctx, 5*24*time.Hour)
 
 		lao := workflow.ActivityOptions{
 			StartToCloseTimeout: 60 * time.Second,
-			RetryPolicy:         shared.RedditRetryPolicyConservative(),
+			RetryPolicy:         shared.RedditRetryConservative,
 			Summary:             *oldSubmissionID,
 		}
-		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, lao), "lock_submission", models.SubmissionInput{
-			SubmissionID: *oldSubmissionID,
-		}).Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, lao), "lock_submission", *oldSubmissionID).Get(ctx, nil); err != nil {
 			return nil, err
 		}
 		notify(

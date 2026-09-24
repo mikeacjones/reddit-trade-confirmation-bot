@@ -2,6 +2,12 @@ package deployment
 
 import "time"
 
+// DeployedSignal is the payload for the deployment cleanup "deployed" signal.
+type DeployedSignal struct {
+	BuildID     string       `json:"build_id"`
+	HealthCheck *HealthCheck `json:"health_check"`
+}
+
 // HealthCheck settings for a newly deployed build.
 type HealthCheck struct {
 	BuildID                       string  `json:"build_id"`
