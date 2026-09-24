@@ -23,11 +23,15 @@ jobs:
       - name: Set up Temporal CLI
         uses: temporalio/setup-temporal@v0
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
 
-      - name: Install dependencies
-        run: uv sync
+      - name: Build deploy helper binary
+        run: |
+          go build -o reddit-bot ./cmd/bot
+          echo "BOT_BIN=$PWD/reddit-bot" >> "$GITHUB_ENV"
 
       - name: Build local image
         id: build

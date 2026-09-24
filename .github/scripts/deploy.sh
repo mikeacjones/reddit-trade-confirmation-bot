@@ -43,6 +43,18 @@ DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES="${DEPLOYMENT_HEALTH_MAX_SDK_WO
 DEPLOYMENT_WORKER_START_WAIT_SECONDS="${DEPLOYMENT_WORKER_START_WAIT_SECONDS:-300}"
 DEPLOYMENT_WORKER_START_RETRY_SECONDS="${DEPLOYMENT_WORKER_START_RETRY_SECONDS:-5}"
 
+# Prefer a locally built binary; fall back to running via `go run` in CI/dev.
+BOT_BIN="${BOT_BIN:-}"
+if [ -z "$BOT_BIN" ]; then
+  if [ -x "./reddit-bot" ]; then
+    BOT_BIN="./reddit-bot"
+  elif command -v reddit-bot >/dev/null 2>&1; then
+    BOT_BIN="reddit-bot"
+  else
+    BOT_BIN="go run ./cmd/bot"
+  fi
+fi
+
 if [ ! -d "$BOT_ENV_DIR" ]; then
   echo "ERROR: Bot env directory not found: $BOT_ENV_DIR"
   exit 1
@@ -136,6 +148,20 @@ rollback_failed_deployment_start() {
   fi
 }
 
+run_bot() {
+  # Usage: run_bot KEY=val KEY=val -- <bot-args...>
+  local -a envvars=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --) shift; break ;;
+      *=*) envvars+=("$1"); shift ;;
+      *) break ;;
+    esac
+  done
+  # shellcheck disable=SC2086
+  env "${envvars[@]}" $BOT_BIN "$@"
+}
+
 for env_file in "$BOT_ENV_DIR"/*.env; do
   [ -f "$env_file" ] || continue
 
@@ -145,8 +171,6 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
     subreddit_slug="unknown"
   fi
   deployment_name="reddit-bots-trade-confirmation-${subreddit_slug}"
-  # Docker container names cannot contain slashes; keep the slash-style name as
-  # a label for filtering/display, and use a Docker-safe actual name.
   container_name="${CONTAINER_PREFIX}-${subreddit_slug}-${BUILD_ID}"
   logical_name="reddit-bots/${BOT_TYPE}/${subreddit_name}-${BUILD_ID}"
 
@@ -161,12 +185,14 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
     --name "$deployment_name"
 
   echo "  Reading previous Temporal current version"
-  previous_build_id=$(PYTHONPATH=src \
-    SUBREDDIT_NAME="$subreddit_name" \
-    TEMPORAL_ADDRESS="$TEMPORAL_ADDRESS" \
-    TEMPORAL_NAMESPACE="$TEMPORAL_NAMESPACE" \
-    TEMPORAL_DEPLOYMENT_NAME="$deployment_name" \
-      uv run python -m temporal.starter deployment-current-build "$deployment_name")
+  previous_build_id=$(
+    run_bot \
+      SUBREDDIT_NAME="$subreddit_name" \
+      TEMPORAL_ADDRESS="$TEMPORAL_ADDRESS" \
+      TEMPORAL_NAMESPACE="$TEMPORAL_NAMESPACE" \
+      TEMPORAL_DEPLOYMENT_NAME="$deployment_name" \
+      -- deployment-current-build "$deployment_name"
+  )
   if [ "$previous_build_id" = "$BUILD_ID" ]; then
     previous_build_id=""
   fi
@@ -181,8 +207,6 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
     docker rm -f "$container_name"
   fi
 
-  # The self-managed SDK worker registers this deployment version when it polls.
-  # CLI create-version requires a server-managed compute provider configuration.
   echo "  Starting Docker container"
   docker run -d \
     --name "$container_name" \
@@ -209,26 +233,26 @@ for env_file in "$BOT_ENV_DIR"/*.env; do
   wait_for_current_version "$deployment_name" "$BUILD_ID"
 
   echo "  Signal-with-start deployment cleanup workflow"
-  if ! PYTHONPATH=src \
-  SUBREDDIT_NAME="$subreddit_name" \
-  TEMPORAL_ADDRESS="$TEMPORAL_ADDRESS" \
-  TEMPORAL_NAMESPACE="$TEMPORAL_NAMESPACE" \
-  TEMPORAL_DEPLOYMENT_NAME="$deployment_name" \
-  DEPLOYMENT_PREVIOUS_BUILD_ID="$previous_build_id" \
-  DEPLOYMENT_CONTAINER_NAME="$container_name" \
-  DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS="$DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS" \
-  DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES="$DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES" \
-  DEPLOYMENT_HEALTH_MAX_SECONDS="$DEPLOYMENT_HEALTH_MAX_SECONDS" \
-  DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS="$DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS" \
-  DEPLOYMENT_HEALTH_METRICS_URL="${DEPLOYMENT_HEALTH_METRICS_URL:-}" \
-  DEPLOYMENT_HEALTH_REQUIRE_METRICS="$DEPLOYMENT_HEALTH_REQUIRE_METRICS" \
-  DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS="$DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS" \
-  DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES" \
-  DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES" \
-  DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES" \
-  DEPLOYMENT_WORKER_START_WAIT_SECONDS="$DEPLOYMENT_WORKER_START_WAIT_SECONDS" \
-  DEPLOYMENT_WORKER_START_RETRY_SECONDS="$DEPLOYMENT_WORKER_START_RETRY_SECONDS" \
-    uv run python -m temporal.starter deployment-signal-with-start \
+  if ! run_bot \
+    SUBREDDIT_NAME="$subreddit_name" \
+    TEMPORAL_ADDRESS="$TEMPORAL_ADDRESS" \
+    TEMPORAL_NAMESPACE="$TEMPORAL_NAMESPACE" \
+    TEMPORAL_DEPLOYMENT_NAME="$deployment_name" \
+    DEPLOYMENT_PREVIOUS_BUILD_ID="$previous_build_id" \
+    DEPLOYMENT_CONTAINER_NAME="$container_name" \
+    DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS="$DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_WORKFLOWS" \
+    DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES="$DEPLOYMENT_HEALTH_REQUIRED_COMPLETED_ACTIVITIES" \
+    DEPLOYMENT_HEALTH_MAX_SECONDS="$DEPLOYMENT_HEALTH_MAX_SECONDS" \
+    DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS="$DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS" \
+    DEPLOYMENT_HEALTH_METRICS_URL="${DEPLOYMENT_HEALTH_METRICS_URL:-}" \
+    DEPLOYMENT_HEALTH_REQUIRE_METRICS="$DEPLOYMENT_HEALTH_REQUIRE_METRICS" \
+    DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS="$DEPLOYMENT_HEALTH_MAX_FAILED_WORKFLOWS" \
+    DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_FAILURES" \
+    DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_ACTIVITY_FAILURES" \
+    DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES="$DEPLOYMENT_HEALTH_MAX_SDK_WORKFLOW_TASK_FAILURES" \
+    DEPLOYMENT_WORKER_START_WAIT_SECONDS="$DEPLOYMENT_WORKER_START_WAIT_SECONDS" \
+    DEPLOYMENT_WORKER_START_RETRY_SECONDS="$DEPLOYMENT_WORKER_START_RETRY_SECONDS" \
+    -- deployment-signal-with-start \
       "$BUILD_ID" \
       "$deployment_name"; then
     rollback_failed_deployment_start "$deployment_name" "$previous_build_id" "$container_name"
