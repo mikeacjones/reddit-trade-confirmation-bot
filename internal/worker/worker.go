@@ -6,6 +6,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -24,6 +25,7 @@ func Run() error {
 	opts := client.Options{
 		HostPort:  cfg.TemporalHost,
 		Namespace: cfg.TemporalNamespace,
+		Logger:    log.NewStructuredLogger(slog.Default()),
 	}
 
 	if bind := os.Getenv("TEMPORAL_SDK_METRICS_BIND_ADDRESS"); bind != "" {

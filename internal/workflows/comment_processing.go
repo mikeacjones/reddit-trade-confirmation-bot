@@ -406,10 +406,14 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	}
 
 	elapsed := workflow.Now(ctx).Sub(time.Unix(int64(commentData.CreatedUTC), 0).UTC())
-	workflow.GetLogger(ctx).Info("Confirmed trade",
-		"parent", validation.ParentAuthor,
-		"confirmer", validation.Confirmer,
-		"elapsed", elapsed.Seconds())
+	workflow.GetLogger(ctx).Info(fmt.Sprintf(
+		"Confirmed trade: %s (%s) <-> %s (%s) — %.1fs from comment to reply",
+		validation.ParentAuthor,
+		flairOrUnknown(parentResult.NewFlair),
+		validation.Confirmer,
+		flairOrUnknown(confirmerResult.NewFlair),
+		elapsed.Seconds(),
+	), "TaskQueue", TaskQueue)
 	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("confirmed"))
 	return models.ConfirmationResult{
 		Status:            "confirmed",

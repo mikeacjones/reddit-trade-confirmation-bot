@@ -37,12 +37,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
+          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-YarnSwap\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
           "legendFormat": "YarnSwap (1h avg)"
         },
         {
           "refId": "B",
-          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
+          "expr": "avg_over_time({job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-pen_swap\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [1h])",
           "legendFormat": "pen_swap (1h avg)"
         }
       ],
@@ -85,12 +85,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" [1h]))",
+          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-YarnSwap\" [1h]))",
           "legendFormat": "YarnSwap"
         },
         {
           "refId": "B",
-          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" [1h]))",
+          "expr": "sum(count_over_time({job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-pen_swap\" [1h]))",
           "legendFormat": "pen_swap"
         }
       ],
@@ -133,12 +133,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-YarnSwap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
+          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-YarnSwap\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
           "legendFormat": "YarnSwap p95"
         },
         {
           "refId": "B",
-          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"^INFO:temporalio.workflow:Confirmed trade:\" |= \"'task_queue': 'trade-confirmation-bot-pen_swap'\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
+          "expr": "quantile_over_time(0.95, {job=\"docker\",stream=\"stderr\"} |~ \"Confirmed trade:\" |= \"TaskQueue=trade-confirmation-bot-pen_swap\" | regexp \"(?P<seconds>[0-9]+(?:\\\\.[0-9]+)?)s from comment to reply\" | unwrap seconds [24h])",
           "legendFormat": "pen_swap p95"
         }
       ],

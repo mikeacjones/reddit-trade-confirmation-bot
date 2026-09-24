@@ -3,7 +3,7 @@
 This guide focuses on useful Temporal dashboards for this bot:
 
 - Temporal Server health/capacity
-- Temporal Python SDK worker health
+- Temporal Go SDK worker health
 - Bot workflow and activity outcomes
 
 ## 1. Expose Metrics
@@ -43,8 +43,8 @@ Temporal maintains official dashboard templates:
 
 - Server General:
   `https://github.com/temporalio/dashboards/blob/v0.1.8/server/server-general.json`
-- Python SDK:
-  `https://github.com/temporalio/dashboards/blob/v0.1.8/sdk/python/python-sdk.json`
+- Go SDK:
+  `https://github.com/temporalio/dashboards/blob/v0.1.8/sdk/go/go-sdk.json`
 
 If you prefer `curl` + import file:
 
@@ -52,8 +52,8 @@ If you prefer `curl` + import file:
 curl -L -o server-general.json \
   https://raw.githubusercontent.com/temporalio/dashboards/v0.1.8/server/server-general.json
 
-curl -L -o python-sdk.json \
-  https://raw.githubusercontent.com/temporalio/dashboards/v0.1.8/sdk/python/python-sdk.json
+curl -L -o go-sdk.json \
+  https://raw.githubusercontent.com/temporalio/dashboards/v0.1.8/sdk/go/go-sdk.json
 ```
 
 ## 4. Build a Bot-Focused Dashboard
