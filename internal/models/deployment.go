@@ -1,4 +1,4 @@
-package deployment
+package models
 
 import "time"
 
@@ -10,19 +10,19 @@ type DeployedSignal struct {
 
 // HealthCheck settings for a newly deployed build.
 type HealthCheck struct {
-	BuildID                       string  `json:"build_id"`
-	PreviousBuildID               *string `json:"previous_build_id,omitempty"`
-	ContainerName                 *string `json:"container_name,omitempty"`
-	MaxMonitorSeconds             int     `json:"max_monitor_seconds"`
-	CheckIntervalSeconds          int     `json:"check_interval_seconds"`
-	MetricsURL                    *string `json:"metrics_url,omitempty"`
-	RequireMetrics                bool    `json:"require_metrics"`
-	RequiredCompletedWorkflows    int     `json:"required_completed_workflows"`
-	RequiredCompletedActivities   int     `json:"required_completed_activities"`
-	MaxFailedWorkflows            int     `json:"max_failed_workflows"`
-	MaxSDKWorkflowFailures        int     `json:"max_sdk_workflow_failures"`
-	MaxSDKActivityFailures        int     `json:"max_sdk_activity_failures"`
-	MaxSDKWorkflowTaskFailures    int     `json:"max_sdk_workflow_task_failures"`
+	BuildID                     string  `json:"build_id"`
+	PreviousBuildID             *string `json:"previous_build_id,omitempty"`
+	ContainerName               *string `json:"container_name,omitempty"`
+	MaxMonitorSeconds           int     `json:"max_monitor_seconds"`
+	CheckIntervalSeconds        int     `json:"check_interval_seconds"`
+	MetricsURL                  *string `json:"metrics_url,omitempty"`
+	RequireMetrics              bool    `json:"require_metrics"`
+	RequiredCompletedWorkflows  int     `json:"required_completed_workflows"`
+	RequiredCompletedActivities int     `json:"required_completed_activities"`
+	MaxFailedWorkflows          int     `json:"max_failed_workflows"`
+	MaxSDKWorkflowFailures      int     `json:"max_sdk_workflow_failures"`
+	MaxSDKActivityFailures      int     `json:"max_sdk_activity_failures"`
+	MaxSDKWorkflowTaskFailures  int     `json:"max_sdk_workflow_task_failures"`
 }
 
 // TemporalExecutionSummary counts recent Temporal workflow executions for a version.
@@ -71,20 +71,20 @@ type CleanupState struct {
 
 // CleanupStatus is the deployment-cleanup workflow result / get_status query.
 type CleanupStatus struct {
-	CurrentBuildID       *string    `json:"current_build_id"`
-	SeenBuildIDs         []string   `json:"seen_build_ids"`
-	DeploymentName       string     `json:"deployment_name"`
-	SubredditName        string     `json:"subreddit_name"`
-	ActiveBuildIDs       []string   `json:"active_build_ids"`
-	ContainerBuildIDs    []string   `json:"container_build_ids"`
-	CleanupCount         int        `json:"cleanup_count"`
-	MonitorStartedAt     *time.Time `json:"monitor_started_at"`
-	MonitorDeadline      *time.Time `json:"monitor_deadline"`
-	HealthPassed         bool       `json:"health_passed"`
-	CompletedWorkflows   int        `json:"completed_workflows"`
-	CompletedActivities  float64    `json:"completed_activities"`
-	RolledBack           bool       `json:"rolled_back"`
-	RollbackReason       *string    `json:"rollback_reason"`
+	CurrentBuildID      *string    `json:"current_build_id"`
+	SeenBuildIDs        []string   `json:"seen_build_ids"`
+	DeploymentName      string     `json:"deployment_name"`
+	SubredditName       string     `json:"subreddit_name"`
+	ActiveBuildIDs      []string   `json:"active_build_ids"`
+	ContainerBuildIDs   []string   `json:"container_build_ids"`
+	CleanupCount        int        `json:"cleanup_count"`
+	MonitorStartedAt    *time.Time `json:"monitor_started_at"`
+	MonitorDeadline     *time.Time `json:"monitor_deadline"`
+	HealthPassed        bool       `json:"health_passed"`
+	CompletedWorkflows  int        `json:"completed_workflows"`
+	CompletedActivities float64    `json:"completed_activities"`
+	RolledBack          bool       `json:"rolled_back"`
+	RollbackReason      *string    `json:"rollback_reason"`
 }
 
 // RollbackResult is the result of rolling a deployment back.
@@ -115,7 +115,7 @@ func (v WorkerVersionState) IsActive() bool {
 
 // WorkerDeploymentState is Temporal Worker Deployment state.
 type WorkerDeploymentState struct {
-	DeploymentName string              `json:"deployment_name"`
+	DeploymentName string               `json:"deployment_name"`
 	Versions       []WorkerVersionState `json:"versions"`
 }
 

@@ -2,27 +2,24 @@ package workflows
 
 import (
 	"fmt"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
-
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/deployment"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
 var checkInterval = 30 * time.Second
 
 // DeploymentCleanupWorkflow monitors Worker Deployment drainage and removes old Docker containers.
-func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditName string, state *deployment.CleanupState) (deployment.CleanupStatus, error) {
+func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditName string, state *models.CleanupState) (models.CleanupStatus, error) {
 	if state == nil {
-		state = &deployment.CleanupState{}
+		state = &models.CleanupState{}
 	}
 
 	workflow.Go(ctx, func(ctx workflow.Context) {
 		ch := workflow.GetSignalChannel(ctx, "deployed")
 		for {
-			var signal deployment.DeployedSignal
+			var signal models.DeployedSignal
 			ch.Receive(ctx, &signal)
 			buildID := signal.BuildID
 			found := false
@@ -37,7 +34,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 			}
 			state.CurrentBuildID = &buildID
 			if signal.HealthCheck == nil {
-				hc := deployment.HealthCheck{BuildID: buildID}
+				hc := models.HealthCheck{BuildID: buildID}
 				state.HealthCheck = &hc
 			} else {
 				state.HealthCheck = signal.HealthCheck
@@ -52,7 +49,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 			state.RollbackReason = nil
 		}
 	})
-	_ = workflow.SetQueryHandler(ctx, "get_status", func() (deployment.CleanupStatus, error) {
+	_ = workflow.SetQueryHandler(ctx, "get_status", func() (models.CleanupStatus, error) {
 		return cleanupStatus(deploymentName, subredditName, state), nil
 	})
 
@@ -66,20 +63,20 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return deployment.CleanupStatus{}, err
+			return models.CleanupStatus{}, err
 		}
 
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.DeploymentRetry,
+			RetryPolicy:         deploymentRetry,
 			Summary:             deploymentName,
 		}
-		var depState deployment.WorkerDeploymentState
+		var depState models.WorkerDeploymentState
 		err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "describe_worker_deployment", deploymentName).Get(ctx, &depState)
 		if err != nil {
 			workflow.GetLogger(ctx).Warn("Deployment inspection failed", "error", err)
 			if err2 := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err2 != nil {
-				return deployment.CleanupStatus{}, err2
+				return models.CleanupStatus{}, err2
 			}
 			_ = workflow.Sleep(ctx, checkInterval)
 			continue
@@ -87,22 +84,22 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 
 		cao := workflow.ActivityOptions{
 			StartToCloseTimeout: 15 * time.Second,
-			RetryPolicy:         shared.DeploymentRetry,
+			RetryPolicy:         deploymentRetry,
 			Summary:             deploymentName,
 		}
-		var containers []deployment.DockerContainerState
+		var containers []models.DockerContainerState
 		err = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cao), "list_deployment_containers", deploymentName).Get(ctx, &containers)
 		if err != nil {
 			workflow.GetLogger(ctx).Warn("Deployment inspection failed", "error", err)
 			if err2 := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err2 != nil {
-				return deployment.CleanupStatus{}, err2
+				return models.CleanupStatus{}, err2
 			}
 			_ = workflow.Sleep(ctx, checkInterval)
 			continue
 		}
 
-		var activeVersions []deployment.WorkerVersionState
-		containersByBuild := map[string]deployment.DockerContainerState{}
+		var activeVersions []models.WorkerVersionState
+		containersByBuild := map[string]models.DockerContainerState{}
 		state.LastActiveBuildIDs = nil
 		state.LastContainerBuildIDs = nil
 		for _, v := range depState.Versions {
@@ -117,12 +114,12 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return deployment.CleanupStatus{}, err
+			return models.CleanupStatus{}, err
 		}
 
 		rolledBack, err := rollbackIfUnhealthy(ctx, deploymentName, subredditName, *currentBuildID, containers, state)
 		if err != nil {
-			return deployment.CleanupStatus{}, err
+			return models.CleanupStatus{}, err
 		}
 		if rolledBack {
 			return cleanupStatus(deploymentName, subredditName, state), nil
@@ -130,7 +127,7 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 
 		if state.HealthCheck != nil && !state.HealthPassed {
 			if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-				return deployment.CleanupStatus{}, err
+				return models.CleanupStatus{}, err
 			}
 			_ = workflow.Sleep(ctx, healthCheckInterval(state.HealthCheck))
 			continue
@@ -147,10 +144,10 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 			}
 			rao := workflow.ActivityOptions{
 				StartToCloseTimeout: 60 * time.Second,
-				RetryPolicy:         shared.DeploymentRetry,
+				RetryPolicy:         deploymentRetry,
 				Summary:             container.Name,
 			}
-			var result deployment.DockerCleanupResult
+			var result models.DockerCleanupResult
 			err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "remove_deployment_container", container).Get(ctx, &result)
 			if err != nil {
 				workflow.GetLogger(ctx).Warn("Failed to remove drained container", "build", version.BuildID, "error", err)
@@ -173,14 +170,14 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		}
 
 		if err := continueCleanupAsNewIfSuggested(ctx, deploymentName, subredditName, state); err != nil {
-			return deployment.CleanupStatus{}, err
+			return models.CleanupStatus{}, err
 		}
 		_ = workflow.Sleep(ctx, checkInterval)
 	}
 }
 
-func cleanupStatus(deploymentName, subredditName string, state *deployment.CleanupState) deployment.CleanupStatus {
-	return deployment.CleanupStatus{
+func cleanupStatus(deploymentName, subredditName string, state *models.CleanupState) models.CleanupStatus {
+	return models.CleanupStatus{
 		CurrentBuildID:      state.CurrentBuildID,
 		SeenBuildIDs:        state.SeenBuildIDs,
 		DeploymentName:      deploymentName,
@@ -198,18 +195,18 @@ func cleanupStatus(deploymentName, subredditName string, state *deployment.Clean
 	}
 }
 
-func continueCleanupAsNewIfSuggested(ctx workflow.Context, deploymentName, subredditName string, state *deployment.CleanupState) error {
+func continueCleanupAsNewIfSuggested(ctx workflow.Context, deploymentName, subredditName string, state *models.CleanupState) error {
 	if !workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 		return nil
 	}
 	workflow.GetLogger(ctx).Info("Continuing deployment cleanup as new", "deployment", deploymentName)
-	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(subredditName))
+	_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditSubreddit.ValueSet(subredditName))
 	return workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
 		InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
 	}, DeploymentCleanupWorkflow, deploymentName, subredditName, state)
 }
 
-func healthCheckInterval(hc *deployment.HealthCheck) time.Duration {
+func healthCheckInterval(hc *models.HealthCheck) time.Duration {
 	if hc == nil {
 		return checkInterval
 	}
@@ -220,11 +217,11 @@ func healthCheckInterval(hc *deployment.HealthCheck) time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-func monitorTimedOut(ctx workflow.Context, state *deployment.CleanupState) bool {
+func monitorTimedOut(ctx workflow.Context, state *models.CleanupState) bool {
 	return state.MonitorDeadline != nil && !workflow.Now(ctx).Before(*state.MonitorDeadline)
 }
 
-func ensureMonitorWindow(ctx workflow.Context, state *deployment.CleanupState) {
+func ensureMonitorWindow(ctx workflow.Context, state *models.CleanupState) {
 	if state.HealthCheck == nil || state.MonitorStartedAt != nil {
 		return
 	}
@@ -241,8 +238,8 @@ func ensureMonitorWindow(ctx workflow.Context, state *deployment.CleanupState) {
 func rollbackIfUnhealthy(
 	ctx workflow.Context,
 	deploymentName, subredditName, currentBuildID string,
-	containers []deployment.DockerContainerState,
-	state *deployment.CleanupState,
+	containers []models.DockerContainerState,
+	state *models.CleanupState,
 ) (bool, error) {
 	if state.HealthCheck == nil || state.RolledBack {
 		return false, nil
@@ -294,10 +291,10 @@ func rollbackIfUnhealthy(
 
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy:         shared.DeploymentRetry,
+		RetryPolicy:         deploymentRetry,
 		Summary:             deploymentName + "->" + *healthCheck.PreviousBuildID,
 	}
-	var result deployment.RollbackResult
+	var result models.RollbackResult
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "rollback_worker_deployment",
 		deploymentName, *healthCheck.PreviousBuildID, container,
 	).Get(ctx, &result); err != nil {
@@ -314,9 +311,9 @@ func rollbackIfUnhealthy(
 func healthFailureReason(
 	ctx workflow.Context,
 	deploymentName, subredditName, currentBuildID string,
-	container *deployment.DockerContainerState,
-	healthCheck *deployment.HealthCheck,
-	state *deployment.CleanupState,
+	container *models.DockerContainerState,
+	healthCheck *models.HealthCheck,
+	state *models.CleanupState,
 ) (*string, error) {
 	if container == nil {
 		r := fmt.Sprintf("container for build %s is missing", currentBuildID)
@@ -344,16 +341,16 @@ func healthFailureReason(
 	}
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         shared.DeploymentRetry,
+		RetryPolicy:         deploymentRetry,
 		Summary:             currentBuildID,
 	}
-	var failureSummary deployment.TemporalExecutionSummary
+	var failureSummary models.TemporalExecutionSummary
 	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "count_failed_workflows_for_deployment",
 		deploymentName, currentBuildID, temporalQueryTime(sinceTime),
 	).Get(ctx, &failureSummary)
 	if err != nil {
 		workflow.GetLogger(ctx).Warn("Temporal failure health check failed", "error", err)
-		failureSummary = deployment.TemporalExecutionSummary{}
+		failureSummary = models.TemporalExecutionSummary{}
 	}
 	if failureSummary.Count > healthCheck.MaxFailedWorkflows {
 		r := fmt.Sprintf("%d failed workflows for build %s: %v",
@@ -367,8 +364,8 @@ func healthFailureReason(
 func successCriteriaPassed(
 	ctx workflow.Context,
 	deploymentName, subredditName, currentBuildID string,
-	healthCheck *deployment.HealthCheck,
-	state *deployment.CleanupState,
+	healthCheck *models.HealthCheck,
+	state *models.CleanupState,
 ) (bool, error) {
 	sinceTime := workflow.Now(ctx)
 	if state.MonitorStartedAt != nil {
@@ -378,10 +375,10 @@ func successCriteriaPassed(
 	if healthCheck.RequiredCompletedWorkflows > 0 {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.DeploymentRetry,
+			RetryPolicy:         deploymentRetry,
 			Summary:             currentBuildID,
 		}
-		var completed deployment.TemporalExecutionSummary
+		var completed models.TemporalExecutionSummary
 		err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "count_completed_workflows_for_deployment",
 			deploymentName, currentBuildID, temporalQueryTime(sinceTime),
 		).Get(ctx, &completed)
@@ -415,9 +412,9 @@ func successCriteriaPassed(
 
 func metricsFailureReason(
 	ctx workflow.Context,
-	healthCheck *deployment.HealthCheck,
+	healthCheck *models.HealthCheck,
 	subredditName string,
-	state *deployment.CleanupState,
+	state *models.CleanupState,
 ) (*string, error) {
 	delta, err := metricsDelta(ctx, healthCheck, subredditName, state)
 	if err != nil {
@@ -447,16 +444,16 @@ func metricsFailureReason(
 
 func metricsDelta(
 	ctx workflow.Context,
-	healthCheck *deployment.HealthCheck,
+	healthCheck *models.HealthCheck,
 	subredditName string,
-	state *deployment.CleanupState,
-) (*deployment.SDKMetricsSnapshot, error) {
+	state *models.CleanupState,
+) (*models.SDKMetricsSnapshot, error) {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Second,
-		RetryPolicy:         shared.DeploymentRetry,
+		RetryPolicy:         deploymentRetry,
 		Summary:             healthCheck.BuildID,
 	}
-	var current deployment.SDKMetricsSnapshot
+	var current models.SDKMetricsSnapshot
 	err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "collect_sdk_metrics", healthCheck, subredditName).Get(ctx, &current)
 	if err != nil {
 		if healthCheck.RequireMetrics {
@@ -467,14 +464,14 @@ func metricsDelta(
 	}
 	if state.BaselineMetrics == nil {
 		state.BaselineMetrics = &current
-		empty := deployment.SDKMetricsSnapshot{}
+		empty := models.SDKMetricsSnapshot{}
 		return &empty, nil
 	}
 	delta := current.DeltaFrom(*state.BaselineMetrics)
 	return &delta, nil
 }
 
-func findCurrentContainer(containers []deployment.DockerContainerState, containerName *string, buildID string) *deployment.DockerContainerState {
+func findCurrentContainer(containers []models.DockerContainerState, containerName *string, buildID string) *models.DockerContainerState {
 	if containerName != nil {
 		for i := range containers {
 			if containers[i].Name == *containerName {

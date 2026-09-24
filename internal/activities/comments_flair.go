@@ -15,7 +15,6 @@ import (
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/reddit"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/rules"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/templates"
 )
 
@@ -271,7 +270,7 @@ func (a *Activities) RequestFlairIncrement(ctx context.Context, request models.F
 		TaskQueue:                a.Cfg.TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		TypedSearchAttributes: temporal.NewSearchAttributes(
-			searchattr.RedditSubreddit.ValueSet(a.Cfg.SubredditName),
+			models.RedditSubreddit.ValueSet(a.Cfg.SubredditName),
 		),
 		StaticSummary: "r/" + a.Cfg.SubredditName,
 	}, "FlairCoordinatorWorkflow")

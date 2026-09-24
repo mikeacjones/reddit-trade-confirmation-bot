@@ -1,4 +1,4 @@
-package shared
+package workflows
 
 import (
 	"time"
@@ -6,17 +6,17 @@ import (
 	"go.temporal.io/sdk/temporal"
 )
 
-const WatermarkIDsMax = 1000
+const watermarkIDsMax = 1000
 
 var (
-	RedditRetry = &temporal.RetryPolicy{
+	redditRetry = &temporal.RetryPolicy{
 		InitialInterval:        time.Second,
 		MaximumInterval:        600 * time.Second,
 		BackoffCoefficient:     2.0,
 		NonRetryableErrorTypes: []string{"NonRetryableError"},
 	}
 
-	RedditRetryConservative = &temporal.RetryPolicy{
+	redditRetryConservative = &temporal.RetryPolicy{
 		InitialInterval:        time.Second,
 		MaximumInterval:        30 * time.Second,
 		MaximumAttempts:        3,
@@ -24,14 +24,14 @@ var (
 		NonRetryableErrorTypes: []string{"NonRetryableError"},
 	}
 
-	PushoverRetry = &temporal.RetryPolicy{
+	pushoverRetry = &temporal.RetryPolicy{
 		InitialInterval:    time.Second,
 		MaximumInterval:    30 * time.Second,
 		MaximumAttempts:    3,
 		BackoffCoefficient: 2.0,
 	}
 
-	DeploymentRetry = &temporal.RetryPolicy{
+	deploymentRetry = &temporal.RetryPolicy{
 		InitialInterval:    2 * time.Second,
 		MaximumInterval:    30 * time.Second,
 		MaximumAttempts:    3,

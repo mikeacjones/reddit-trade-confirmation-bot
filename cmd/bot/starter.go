@@ -1,4 +1,4 @@
-package starter
+package main
 
 import (
 	"context"
@@ -10,19 +10,19 @@ import (
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/operatorservice/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/config"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/deployment"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
 	wf "github.com/mikeacjones/reddit-trade-confirmation-bot/internal/workflows"
 )
 
-// Run dispatches a starter CLI command.
-func Run(args []string) error {
+// runStarter dispatches a starter CLI command.
+func runStarter(args []string) error {
 	if len(args) < 1 {
 		printUsage()
 		return nil
@@ -77,11 +77,11 @@ func Run(args []string) error {
 }
 
 func subredditAttrs(name string) temporal.SearchAttributes {
-	return temporal.NewSearchAttributes(searchattr.RedditSubreddit.ValueSet(name))
+	return temporal.NewSearchAttributes(models.RedditSubreddit.ValueSet(name))
 }
 
 func setupSchedules(ctx context.Context, c client.Client, cfg config.Config) error {
-	if err := searchattr.EnsureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
+	if err := ensureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
 		return err
 	}
 	slog.Info("Setting up schedules...")
@@ -131,7 +131,7 @@ func setupSchedules(ctx context.Context, c client.Client, cfg config.Config) err
 }
 
 func startPolling(ctx context.Context, c client.Client, cfg config.Config) error {
-	if err := searchattr.EnsureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
+	if err := ensureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
 		return err
 	}
 	workflowID := "poll-" + cfg.SubredditName
@@ -154,7 +154,7 @@ func startPolling(ctx context.Context, c client.Client, cfg config.Config) error
 }
 
 func triggerMonthlyPost(ctx context.Context, c client.Client, cfg config.Config) error {
-	if err := searchattr.EnsureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
+	if err := ensureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
 		return err
 	}
 	slog.Info("Triggering monthly post workflow...")
@@ -222,11 +222,11 @@ func showStatus(ctx context.Context, c client.Client, cfg config.Config) error {
 }
 
 func signalDeploymentCleanup(ctx context.Context, c client.Client, cfg config.Config, buildID, deploymentName string) error {
-	if err := searchattr.EnsureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
+	if err := ensureSearchAttributes(ctx, c, cfg.TemporalNamespace); err != nil {
 		return err
 	}
 	workflowID := "deployment-cleanup-" + cfg.SubredditSlug
-	healthCheck := &deployment.HealthCheck{
+	healthCheck := &models.HealthCheck{
 		BuildID:                     buildID,
 		MaxMonitorSeconds:           envInt("DEPLOYMENT_HEALTH_MAX_SECONDS", 0),
 		CheckIntervalSeconds:        envInt("DEPLOYMENT_HEALTH_CHECK_INTERVAL_SECONDS", 60),
@@ -248,7 +248,7 @@ func signalDeploymentCleanup(ctx context.Context, c client.Client, cfg config.Co
 		healthCheck.MetricsURL = &v
 	}
 
-	signal := deployment.DeployedSignal{BuildID: buildID, HealthCheck: healthCheck}
+	signal := models.DeployedSignal{BuildID: buildID, HealthCheck: healthCheck}
 	waitSeconds := envInt("DEPLOYMENT_WORKER_START_WAIT_SECONDS", 300)
 	retrySeconds := envInt("DEPLOYMENT_WORKER_START_RETRY_SECONDS", 5)
 	deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
@@ -269,7 +269,7 @@ func signalDeploymentCleanup(ctx context.Context, c client.Client, cfg config.Co
 					},
 				},
 			},
-			"DeploymentCleanupWorkflow", deploymentName, cfg.SubredditName, (*deployment.CleanupState)(nil),
+			"DeploymentCleanupWorkflow", deploymentName, cfg.SubredditName, (*models.CleanupState)(nil),
 		)
 		if err == nil {
 			slog.Info("Signal-with-start sent",
@@ -336,4 +336,65 @@ Commands:
     deployment-current-build [deployment-name]
                         Print current Worker Deployment build ID
 `)
+}
+
+func ensureSearchAttributes(ctx context.Context, c client.Client, namespace string) error {
+	keys := []struct {
+		name string
+		typ  enumspb.IndexedValueType
+	}{
+		{models.RedditSubreddit.GetName(), enumspb.INDEXED_VALUE_TYPE_KEYWORD},
+		{models.RedditCommentID.GetName(), enumspb.INDEXED_VALUE_TYPE_KEYWORD},
+		{models.RedditSubmissionID.GetName(), enumspb.INDEXED_VALUE_TYPE_KEYWORD},
+		{models.RedditConfirmationStatus.GetName(), enumspb.INDEXED_VALUE_TYPE_KEYWORD},
+	}
+
+	resp, err := c.OperatorService().ListSearchAttributes(ctx, &operatorservice.ListSearchAttributesRequest{
+		Namespace: namespace,
+	})
+	if err != nil {
+		return fmt.Errorf("list search attributes: %w", err)
+	}
+
+	missing := map[string]enumspb.IndexedValueType{}
+	var mismatched []string
+	for _, key := range keys {
+		actual, ok := resp.CustomAttributes[key.name]
+		if !ok {
+			actual, ok = resp.SystemAttributes[key.name]
+			if !ok {
+				missing[key.name] = key.typ
+				continue
+			}
+		}
+		if actual != key.typ {
+			mismatched = append(mismatched, fmt.Sprintf("%s exists as %v, expected %v", key.name, actual, key.typ))
+		}
+	}
+	if len(mismatched) > 0 {
+		return fmt.Errorf("Temporal search attribute type mismatch: %s", strings.Join(mismatched, "; "))
+	}
+	if len(missing) == 0 {
+		slog.Info("Temporal search attributes already registered")
+		return nil
+	}
+
+	_, err = c.OperatorService().AddSearchAttributes(ctx, &operatorservice.AddSearchAttributesRequest{
+		Namespace:        namespace,
+		SearchAttributes: missing,
+	})
+	if err != nil {
+		if _, ok := err.(*serviceerror.AlreadyExists); ok {
+			slog.Info("Temporal search attributes already registered")
+			return nil
+		}
+		return fmt.Errorf("add search attributes: %w", err)
+	}
+
+	names := make([]string, 0, len(missing))
+	for n := range missing {
+		names = append(names, n)
+	}
+	slog.Info("Registered Temporal search attributes", "attrs", strings.Join(names, ", "))
+	return nil
 }

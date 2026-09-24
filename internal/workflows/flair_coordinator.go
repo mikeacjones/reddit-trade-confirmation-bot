@@ -8,8 +8,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
 const maxFlairCache = 30
@@ -50,7 +48,7 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 
 			ao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetry,
+				RetryPolicy:         redditRetry,
 				Summary:             req.Username,
 			}
 			var current models.UserFlairResult
@@ -74,7 +72,7 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 
 			sao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetry,
+				RetryPolicy:         redditRetry,
 				Summary:             fmt.Sprintf("%s:%d", req.Username, targetCount),
 			}
 			var setResult models.FlairUpdateResult
@@ -125,7 +123,7 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 	draining = true
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 
-	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
+	_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditSubreddit.ValueSet(SubredditName))
 	return workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
 		InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
 	}, FlairCoordinatorWorkflow, lastKnownCount)

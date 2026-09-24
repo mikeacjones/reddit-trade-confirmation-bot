@@ -1,4 +1,4 @@
-package worker
+package main
 
 import (
 	"log/slog"
@@ -16,8 +16,8 @@ import (
 	wf "github.com/mikeacjones/reddit-trade-confirmation-bot/internal/workflows"
 )
 
-// Run starts the Temporal worker and blocks until interrupt.
-func Run() error {
+// runWorker starts the Temporal worker and blocks until interrupt.
+func runWorker() error {
 	cfg := config.MustLoad()
 	wf.SubredditName = cfg.SubredditName
 	wf.TaskQueue = cfg.TaskQueue

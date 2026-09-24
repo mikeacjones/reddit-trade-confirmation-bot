@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
 	"io"
 	"net"
 	"net/http"
@@ -15,8 +16,6 @@ import (
 
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
-
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/deployment"
 )
 
 const (
@@ -27,13 +26,13 @@ const (
 )
 
 var deploymentActivityTypes = map[string]struct{}{
-	"collect_sdk_metrics":                        {},
-	"count_completed_workflows_for_deployment":   {},
-	"count_failed_workflows_for_deployment":      {},
-	"describe_worker_deployment":                 {},
-	"list_deployment_containers":                 {},
-	"remove_deployment_container":                {},
-	"rollback_worker_deployment":                 {},
+	"collect_sdk_metrics":                      {},
+	"count_completed_workflows_for_deployment": {},
+	"count_failed_workflows_for_deployment":    {},
+	"describe_worker_deployment":               {},
+	"list_deployment_containers":               {},
+	"remove_deployment_container":              {},
+	"rollback_worker_deployment":               {},
 }
 
 var prometheusSampleRE = regexp.MustCompile(
@@ -87,11 +86,11 @@ func visibilityEscape(value string) string {
 }
 
 // DescribeWorkerDeployment describes a Temporal Worker Deployment and its versions.
-func (a *Activities) DescribeWorkerDeployment(ctx context.Context, deploymentName string) (deployment.WorkerDeploymentState, error) {
+func (a *Activities) DescribeWorkerDeployment(ctx context.Context, deploymentName string) (models.WorkerDeploymentState, error) {
 	handle := a.Temporal.WorkerDeploymentClient().GetHandle(deploymentName)
 	resp, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
 	if err != nil {
-		return deployment.WorkerDeploymentState{}, err
+		return models.WorkerDeploymentState{}, err
 	}
 	currentBuild := ""
 	if resp.Info.RoutingConfig.CurrentVersion != nil {
@@ -101,7 +100,7 @@ func (a *Activities) DescribeWorkerDeployment(ctx context.Context, deploymentNam
 	if resp.Info.RoutingConfig.RampingVersion != nil {
 		rampingBuild = resp.Info.RoutingConfig.RampingVersion.BuildID
 	}
-	versions := make([]deployment.WorkerVersionState, 0, len(resp.Info.VersionSummaries))
+	versions := make([]models.WorkerVersionState, 0, len(resp.Info.VersionSummaries))
 	for _, summary := range resp.Info.VersionSummaries {
 		buildID := summary.Version.BuildID
 		var drainage *string
@@ -109,13 +108,13 @@ func (a *Activities) DescribeWorkerDeployment(ctx context.Context, deploymentNam
 			s := drainageStatusString(summary.DrainageStatus)
 			drainage = &s
 		}
-		versions = append(versions, deployment.WorkerVersionState{
+		versions = append(versions, models.WorkerVersionState{
 			BuildID:        buildID,
 			Status:         deriveVersionStatus(buildID, currentBuild, rampingBuild, summary.DrainageStatus),
 			DrainageStatus: drainage,
 		})
 	}
-	return deployment.WorkerDeploymentState{
+	return models.WorkerDeploymentState{
 		DeploymentName: deploymentName,
 		Versions:       versions,
 	}, nil
@@ -152,7 +151,7 @@ func drainageStatusString(s client.WorkerDeploymentVersionDrainageStatus) string
 func (a *Activities) countWorkflowsForDeployment(
 	ctx context.Context,
 	deploymentName, buildID, sinceTimeISO, status string,
-) (deployment.TemporalExecutionSummary, error) {
+) (models.TemporalExecutionSummary, error) {
 	deploymentVersion := deploymentName + ":" + buildID
 	query := fmt.Sprintf(
 		`ExecutionStatus = "%s" AND CloseTime >= "%s" AND TemporalWorkerDeployment = "%s" AND TemporalWorkerDeploymentVersion = "%s"`,
@@ -168,7 +167,7 @@ func (a *Activities) countWorkflowsForDeployment(
 			Query:         query,
 		})
 		if err != nil {
-			return deployment.TemporalExecutionSummary{}, err
+			return models.TemporalExecutionSummary{}, err
 		}
 		for _, exec := range resp.Executions {
 			workflowIDs = append(workflowIDs, exec.Execution.WorkflowId)
@@ -182,21 +181,21 @@ func (a *Activities) countWorkflowsForDeployment(
 	if len(ids) > 20 {
 		ids = ids[:20]
 	}
-	return deployment.TemporalExecutionSummary{Count: len(workflowIDs), WorkflowIDs: ids}, nil
+	return models.TemporalExecutionSummary{Count: len(workflowIDs), WorkflowIDs: ids}, nil
 }
 
 // CountFailedWorkflowsForDeployment counts recently failed workflows for a build.
-func (a *Activities) CountFailedWorkflowsForDeployment(ctx context.Context, deploymentName, buildID, sinceTimeISO string) (deployment.TemporalExecutionSummary, error) {
+func (a *Activities) CountFailedWorkflowsForDeployment(ctx context.Context, deploymentName, buildID, sinceTimeISO string) (models.TemporalExecutionSummary, error) {
 	return a.countWorkflowsForDeployment(ctx, deploymentName, buildID, sinceTimeISO, "Failed")
 }
 
 // CountCompletedWorkflowsForDeployment counts recently completed workflows for a build.
-func (a *Activities) CountCompletedWorkflowsForDeployment(ctx context.Context, deploymentName, buildID, sinceTimeISO string) (deployment.TemporalExecutionSummary, error) {
+func (a *Activities) CountCompletedWorkflowsForDeployment(ctx context.Context, deploymentName, buildID, sinceTimeISO string) (models.TemporalExecutionSummary, error) {
 	return a.countWorkflowsForDeployment(ctx, deploymentName, buildID, sinceTimeISO, "Completed")
 }
 
 // CollectSDKMetrics collects Temporal SDK failure counters from the metrics endpoint.
-func (a *Activities) CollectSDKMetrics(ctx context.Context, healthCheck deployment.HealthCheck, subredditName string) (deployment.SDKMetricsSnapshot, error) {
+func (a *Activities) CollectSDKMetrics(ctx context.Context, healthCheck models.HealthCheck, subredditName string) (models.SDKMetricsSnapshot, error) {
 	metricsURL := ""
 	if healthCheck.MetricsURL != nil {
 		metricsURL = *healthCheck.MetricsURL
@@ -213,17 +212,17 @@ func (a *Activities) CollectSDKMetrics(ctx context.Context, healthCheck deployme
 		}
 	}
 	if metricsURL == "" {
-		return deployment.SDKMetricsSnapshot{}, fmt.Errorf("No SDK metrics URL configured")
+		return models.SDKMetricsSnapshot{}, fmt.Errorf("No SDK metrics URL configured")
 	}
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	resp, err := httpClient.Get(metricsURL)
 	if err != nil {
-		return deployment.SDKMetricsSnapshot{}, err
+		return models.SDKMetricsSnapshot{}, err
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return deployment.SDKMetricsSnapshot{}, err
+		return models.SDKMetricsSnapshot{}, err
 	}
 	text := string(raw)
 	common := metricFilter{
@@ -231,7 +230,7 @@ func (a *Activities) CollectSDKMetrics(ctx context.Context, healthCheck deployme
 		taskQueue:     a.Cfg.TaskQueue,
 		subredditName: subredditName,
 	}
-	return deployment.SDKMetricsSnapshot{
+	return models.SDKMetricsSnapshot{
 		WorkflowCompleted: sumPrometheus(text, []string{"temporal_workflow_completed"}, common, nil),
 		ActivityCompleted: sumPrometheus(text, []string{
 			"temporal_activity_execution_completed",
@@ -309,7 +308,7 @@ func parsePromLabels(raw string) map[string]string {
 }
 
 // ListDeploymentContainers lists Docker containers for a deployment.
-func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentName string) ([]deployment.DockerContainerState, error) {
+func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentName string) ([]models.DockerContainerState, error) {
 	filters, _ := json.Marshal(map[string][]string{"label": {deploymentLabel + "=" + deploymentName}})
 	q := url.Values{"all": {"true"}, "filters": {string(filters)}}.Encode()
 	raw, err := dockerRequest("GET", "/containers/json?"+q, nil)
@@ -327,7 +326,7 @@ func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentNam
 	if err := json.Unmarshal(raw, &containers); err != nil {
 		return nil, err
 	}
-	var result []deployment.DockerContainerState
+	var result []models.DockerContainerState
 	for _, c := range containers {
 		buildID := c.Labels[buildIDLabel]
 		if buildID == "" {
@@ -342,7 +341,7 @@ func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentNam
 			img = c.Image
 		}
 		state, status := c.State, c.Status
-		result = append(result, deployment.DockerContainerState{
+		result = append(result, models.DockerContainerState{
 			ID:      c.ID,
 			Name:    name,
 			BuildID: buildID,
@@ -355,16 +354,16 @@ func (a *Activities) ListDeploymentContainers(ctx context.Context, deploymentNam
 }
 
 // RollbackWorkerDeployment sets current version back and removes the failed container.
-func (a *Activities) RollbackWorkerDeployment(ctx context.Context, deploymentName, rollbackBuildID string, failedContainer *deployment.DockerContainerState) (deployment.RollbackResult, error) {
+func (a *Activities) RollbackWorkerDeployment(ctx context.Context, deploymentName, rollbackBuildID string, failedContainer *models.DockerContainerState) (models.RollbackResult, error) {
 	handle := a.Temporal.WorkerDeploymentClient().GetHandle(deploymentName)
 	_, err := handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
 		BuildID:  rollbackBuildID,
 		Identity: "reddit-bots-deployment-health",
 	})
 	if err != nil {
-		return deployment.RollbackResult{}, err
+		return models.RollbackResult{}, err
 	}
-	result := deployment.RollbackResult{
+	result := models.RollbackResult{
 		DeploymentName:  deploymentName,
 		RollbackBuildID: rollbackBuildID,
 	}
@@ -380,8 +379,8 @@ func (a *Activities) RollbackWorkerDeployment(ctx context.Context, deploymentNam
 }
 
 // RemoveDeploymentContainer removes a drained deployment container and unused image.
-func (a *Activities) RemoveDeploymentContainer(ctx context.Context, container deployment.DockerContainerState) (deployment.DockerCleanupResult, error) {
-	result := deployment.DockerCleanupResult{ContainerName: container.Name}
+func (a *Activities) RemoveDeploymentContainer(ctx context.Context, container models.DockerContainerState) (models.DockerCleanupResult, error) {
+	result := models.DockerCleanupResult{ContainerName: container.Name}
 	ref := url.PathEscape(container.ID)
 	if _, err := dockerRequest("DELETE", "/containers/"+ref+"?force=true&v=true", map[int]struct{}{204: {}, 404: {}}); err != nil {
 		return result, err

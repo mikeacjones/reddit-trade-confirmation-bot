@@ -11,8 +11,6 @@ import (
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/rules"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
-	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
 // Set at worker startup from environment (one worker process per subreddit).
@@ -82,7 +80,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 	if state.currentSubmissionID == nil {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 60 * time.Second,
-			RetryPolicy:         shared.RedditRetry,
+			RetryPolicy:         redditRetry,
 			Summary:             "r/" + SubredditName,
 		}
 		var result models.ActiveSubmissions
@@ -100,7 +98,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		info := workflow.GetInfo(ctx)
 		if info.GetContinueAsNewSuggested() || info.GetTargetWorkerDeploymentVersionChanged() {
 			logger.Info("Continuing as new")
-			_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
+			_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditSubreddit.ValueSet(SubredditName))
 			return models.PollingStatus{}, workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
 				InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
 			}, CommentPollingWorkflow, state.seenIDs, state.currentSubmissionID, state.previousSubmissionID)
@@ -122,7 +120,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 24 * time.Hour,
 			HeartbeatTimeout:    60 * time.Second,
-			RetryPolicy:         shared.RedditRetry,
+			RetryPolicy:         redditRetry,
 		}
 		actCtx, cancel := workflow.WithCancel(workflow.WithActivityOptions(ctx, ao))
 		fut := workflow.ExecuteActivity(actCtx, "poll_new_comments", models.FetchCommentsInput{
@@ -153,8 +151,8 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 
 		if len(pollResult.ScannedIDs) > 0 {
 			merged := append(pollResult.ScannedIDs, state.seenIDs...)
-			if len(merged) > shared.WatermarkIDsMax {
-				merged = merged[:shared.WatermarkIDsMax]
+			if len(merged) > watermarkIDsMax {
+				merged = merged[:watermarkIDsMax]
 			}
 			state.seenIDs = merged
 		}
@@ -164,7 +162,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 			if !state.gapAlerted {
 				nao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.PushoverRetry,
+					RetryPolicy:         pushoverRetry,
 					Summary:             fmt.Sprintf("listing-gap:%d", pollResult.ScannedCount),
 				}
 				msg := fmt.Sprintf(
@@ -183,13 +181,13 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 				commentData.SubmissionID == *state.previousSubmissionID {
 				sao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.RedditRetry,
+					RetryPolicy:         redditRetry,
 					Summary:             commentData.ID,
 				}
 				_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, sao), "mark_comment_saved", commentData.ID).Get(ctx, nil)
 				rao := workflow.ActivityOptions{
 					StartToCloseTimeout: 30 * time.Second,
-					RetryPolicy:         shared.RedditRetry,
+					RetryPolicy:         redditRetry,
 					Summary:             commentData.ID + ":old_confirmation_thread",
 				}
 				_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", models.ReplyToCommentInput{
@@ -202,15 +200,15 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 
 			childID := "process-" + commentData.ID
 			childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-				WorkflowID:        childID,
-				TaskQueue:         TaskQueue,
-				ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+				WorkflowID:            childID,
+				TaskQueue:             TaskQueue,
+				ParentClosePolicy:     enumspb.PARENT_CLOSE_POLICY_ABANDON,
 				WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY,
 				TypedSearchAttributes: temporal.NewSearchAttributes(
-					searchattr.RedditSubreddit.ValueSet(SubredditName),
-					searchattr.RedditCommentID.ValueSet(commentData.ID),
-					searchattr.RedditSubmissionID.ValueSet(commentData.SubmissionID),
-					searchattr.RedditConfirmationStatus.ValueSet("processing"),
+					models.RedditSubreddit.ValueSet(SubredditName),
+					models.RedditCommentID.ValueSet(commentData.ID),
+					models.RedditSubmissionID.ValueSet(commentData.SubmissionID),
+					models.RedditConfirmationStatus.ValueSet("processing"),
 				),
 				StaticSummary: commentData.ID + ":u/" + commentData.AuthorName,
 			})
@@ -256,7 +254,7 @@ func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.Commen
 	save := func(id, summary string) error {
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.RedditRetry,
+			RetryPolicy:         redditRetry,
 			Summary:             summary,
 		}
 		return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "mark_comment_saved", id).Get(ctx, nil)
@@ -264,11 +262,11 @@ func ProcessConfirmationWorkflow(ctx workflow.Context, commentData models.Commen
 
 	result, err := processConfirmation(ctx, commentData, save)
 	if err != nil {
-		_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("manual_review"))
+		_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditConfirmationStatus.ValueSet("manual_review"))
 		logger.Error("Manual review required", "comment", commentID, "author", author, "error", err)
 		nao := workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Second,
-			RetryPolicy:         shared.PushoverRetry,
+			RetryPolicy:         pushoverRetry,
 			Summary:             "manual-review:" + commentID,
 		}
 		msg := fmt.Sprintf("[r/%s] Manual review required for comment %s by u/%s: %v",
@@ -283,7 +281,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	commentID := commentData.ID
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         shared.RedditRetry,
+		RetryPolicy:         redditRetry,
 	}
 	var validation models.ValidationResult
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, ao), "validate_confirmation", commentData).Get(ctx, &validation); err != nil {
@@ -308,7 +306,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 			}
 			rao := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Second,
-				RetryPolicy:         shared.RedditRetry,
+				RetryPolicy:         redditRetry,
 				Summary:             reply.CommentID + ":" + reply.TemplateName,
 			}
 			if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", reply).Get(ctx, nil); err != nil {
@@ -317,7 +315,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 			if err := save(commentID, commentID); err != nil {
 				return models.ConfirmationResult{}, err
 			}
-			_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("rejected"))
+			_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditConfirmationStatus.ValueSet("rejected"))
 			return models.ConfirmationResult{
 				Status:    "rejected",
 				Reason:    validation.Reason,
@@ -327,7 +325,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		if err := save(commentID, commentID); err != nil {
 			return models.ConfirmationResult{}, err
 		}
-		_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("skipped"))
+		_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditConfirmationStatus.ValueSet("skipped"))
 		return models.ConfirmationResult{
 			Status:    "skipped",
 			CommentID: commentID,
@@ -351,7 +349,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 
 	fao := workflow.ActivityOptions{
 		StartToCloseTimeout: 120 * time.Second,
-		RetryPolicy:         shared.RedditRetry,
+		RetryPolicy:         redditRetry,
 	}
 	parentFut := workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, fao),
@@ -395,7 +393,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	}
 	rao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy:         shared.RedditRetry,
+		RetryPolicy:         redditRetry,
 		Summary:             confirmationReply.CommentID + ":" + confirmationReply.TemplateName,
 	}
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, rao), "reply_to_comment", confirmationReply).Get(ctx, nil); err != nil {
@@ -414,7 +412,7 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 		flairOrUnknown(confirmerResult.NewFlair),
 		elapsed.Seconds(),
 	), "TaskQueue", TaskQueue)
-	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditConfirmationStatus.ValueSet("confirmed"))
+	_ = workflow.UpsertTypedSearchAttributes(ctx, models.RedditConfirmationStatus.ValueSet("confirmed"))
 	return models.ConfirmationResult{
 		Status:            "confirmed",
 		CommentID:         commentID,

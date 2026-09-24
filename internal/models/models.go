@@ -72,9 +72,9 @@ type CreateMonthlyPostInput struct {
 
 // FetchCommentsInput is input for the long-running comment polling activity.
 type FetchCommentsInput struct {
-	SeenIDs              []string `json:"seen_ids"`
-	ActiveSubmissionIDs  []string `json:"active_submission_ids"`
-	CurrentSubmissionID  string   `json:"current_submission_id"`
+	SeenIDs             []string `json:"seen_ids"`
+	ActiveSubmissionIDs []string `json:"active_submission_ids"`
+	CurrentSubmissionID string   `json:"current_submission_id"`
 }
 
 // FetchCommentsResult is the result of fetching new comments.

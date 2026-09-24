@@ -78,11 +78,13 @@ docker run --env-file .env reddit-trade-confirmation-bot
 cmd/bot/                 CLI entrypoint (worker + starter commands)
 internal/
   activities/            Reddit + deployment activities
-  workflows/             Temporal workflows
+  workflows/             Temporal workflows (+ retry policies)
   reddit/                Minimal Reddit OAuth HTTP client (stdlib only)
   rules/                 Pure confirmation / flair business rules
+  models/                Shared DTOs + search-attribute keys
   config/                Environment config
   metrics/               Stdlib Prometheus exposition for SDK metrics
+  templates/             Wiki/local markdown template loader
 mdtemplates/             Default reply / post templates
 ```
 
