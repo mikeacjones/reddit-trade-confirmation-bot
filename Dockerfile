@@ -1,20 +1,18 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /reddit-bot ./cmd/bot
 
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
+COPY --from=build /reddit-bot /app/reddit-bot
+COPY mdtemplates/ /app/mdtemplates/
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Install dependencies
-COPY src/temporal/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy source code
-COPY src/ ./src/
-COPY src/mdtemplates/ ./src/mdtemplates/
-COPY entrypoint.sh ./entrypoint.sh
-
-WORKDIR /app/src
-
-# Override TEMPORAL_HOST to point to your Temporal server
 ENV TEMPORAL_HOST=host.docker.internal:7233
-
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -8,3 +8,5 @@ __pycache__/
 .python-version
 .DS_Store
 replay_histories/
+reddit-bot
+*.exe

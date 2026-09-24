@@ -44,8 +44,6 @@ echo "=== Running replay determinism checks ==="
 failed_workflows=()
 passed_workflows=()
 
-# Test each workflow individually — the test suite replays every file in
-# REPLAY_HISTORIES_DIR, so we isolate one history at a time.
 for history_file in "$DOWNLOAD_DIR"/*.json; do
   wid=$(basename "$history_file" .json)
   solo_dir=$(mktemp -d)
@@ -53,7 +51,7 @@ for history_file in "$DOWNLOAD_DIR"/*.json; do
   cp "$history_file" "$solo_dir/"
 
   echo "Replaying $wid ..."
-  if REPLAY_HISTORIES_DIR="$solo_dir" uv run python -m pytest tests/test_replay_determinism.py -x -q --tb=short; then
+  if REPLAY_HISTORIES_DIR="$solo_dir" go test ./internal/workflows -run TestReplayDeterminism -count=1 -v; then
     echo "$wid ... PASSED"
     passed_workflows+=("$wid")
   else
@@ -77,7 +75,6 @@ for wid in "${passed_workflows[@]}"; do
 done
 
 for wid in "${failed_workflows[@]}"; do
-  # Use unspecified so the application code can control its own upgrade path via CaN
   echo "Setting $wid -> unspecified"
   temporal workflow update-options \
     --address "$TEMPORAL_ADDRESS" \
