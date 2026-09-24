@@ -1,6 +1,7 @@
 package workflows
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,13 +42,29 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		state.seenIDs = []string{}
 	}
 
-	listenSignalEmpty(ctx, "stop", func() { state.shouldStop = true })
-	listenSignalEmpty(ctx, "wake_up", func() {})
-	listenSignal(ctx, "set_current_submission", func(submissionID string) {
-		state.previousSubmissionID = state.currentSubmissionID
-		id := submissionID
-		state.currentSubmissionID = &id
-		state.submissionChanged = true
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		ch := workflow.GetSignalChannel(ctx, "stop")
+		for {
+			ch.Receive(ctx, nil)
+			state.shouldStop = true
+		}
+	})
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		ch := workflow.GetSignalChannel(ctx, "wake_up")
+		for {
+			ch.Receive(ctx, nil)
+		}
+	})
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		ch := workflow.GetSignalChannel(ctx, "set_current_submission")
+		for {
+			var submissionID string
+			ch.Receive(ctx, &submissionID)
+			state.previousSubmissionID = state.currentSubmissionID
+			id := submissionID
+			state.currentSubmissionID = &id
+			state.submissionChanged = true
+		}
 	})
 	_ = workflow.SetQueryHandler(ctx, "get_status", func() (map[string]any, error) {
 		var lastSeen any
@@ -84,16 +101,18 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		state.currentSubmissionID = result.CurrentSubmissionID
 		state.previousSubmissionID = result.PreviousSubmissionID
 		logger.Info("Bootstrapped submissions",
-			"current", ptrVal(state.currentSubmissionID),
-			"previous", ptrVal(state.previousSubmissionID))
+			"current", state.currentSubmissionID,
+			"previous", state.previousSubmissionID)
 	}
 
 	for !state.shouldStop {
 		info := workflow.GetInfo(ctx)
 		if info.GetContinueAsNewSuggested() || info.GetTargetWorkerDeploymentVersionChanged() {
 			logger.Info("Continuing as new")
-			return nil, continueAsNewAutoUpgrade(ctx, CommentPollingWorkflow,
-				state.seenIDs, state.currentSubmissionID, state.previousSubmissionID)
+			_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
+			return nil, workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
+				InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
+			}, CommentPollingWorkflow, state.seenIDs, state.currentSubmissionID, state.previousSubmissionID)
 		}
 
 		state.submissionChanged = false
@@ -129,7 +148,7 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 		if !fut.IsReady() {
 			cancel()
 			err := fut.Get(ctx, nil)
-			if err != nil && !temporal.IsCanceledError(err) && !isActivityCanceled(err) {
+			if err != nil && !temporal.IsCanceledError(err) && !isCanceledCause(err) {
 				return nil, err
 			}
 			continue
@@ -203,7 +222,8 @@ func CommentPollingWorkflow(ctx workflow.Context, seenIDs []string, currentSubmi
 			})
 			err := workflow.ExecuteChildWorkflow(childCtx, ProcessConfirmationWorkflow, commentData).GetChildWorkflowExecution().Get(ctx, nil)
 			if err != nil {
-				if isAlreadyStarted(err) {
+				var alreadyStarted *temporal.ChildWorkflowExecutionAlreadyStartedError
+				if temporal.IsWorkflowExecutionAlreadyStartedError(err) || errors.As(err, &alreadyStarted) {
 					logger.Warn("Comment already has workflow, skipping start", "comment", commentData.ID)
 				} else {
 					logger.Warn("Failed to start child workflow", "comment", commentData.ID, "error", err)
@@ -356,61 +376,12 @@ func processConfirmation(ctx workflow.Context, commentData models.CommentData, s
 	return services.BuildConfirmedResult(commentID, validation, parentResult, confirmerResult), nil
 }
 
-func continueAsNewAutoUpgrade(ctx workflow.Context, wfn any, args ...any) error {
-	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
-	return workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
-		InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
-	}, wfn, args...)
-}
-
-func ptrVal(p *string) string {
-	if p == nil {
-		return "<nil>"
-	}
-	return *p
-}
-
-func isActivityCanceled(err error) bool {
-	var appErr *temporal.ApplicationError
-	if temporal.IsCanceledError(err) {
-		return true
-	}
-	if temporal.IsTimeoutError(err) {
-		return false
-	}
-	_ = appErr
-	// Unwrap activity error cause
-	cause := err
-	for cause != nil {
-		if temporal.IsCanceledError(cause) {
+func isCanceledCause(err error) bool {
+	for err != nil {
+		if temporal.IsCanceledError(err) {
 			return true
 		}
-		u, ok := cause.(interface{ Unwrap() error })
-		if !ok {
-			break
-		}
-		cause = u.Unwrap()
+		err = errors.Unwrap(err)
 	}
 	return false
-}
-
-func isAlreadyStarted(err error) bool {
-	type already interface{ AlreadyStarted() bool }
-	if _, ok := err.(already); ok {
-		return true
-	}
-	s := err.Error()
-	return contains(s, "already started") || contains(s, "AlreadyStarted")
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		(func() bool {
-			for i := 0; i+len(sub) <= len(s); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		})())
 }

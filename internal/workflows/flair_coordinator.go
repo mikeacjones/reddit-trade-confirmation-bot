@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/models"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
@@ -124,7 +125,10 @@ func FlairCoordinatorWorkflow(ctx workflow.Context, carriedFlairCounts map[strin
 	draining = true
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 
-	return continueAsNewAutoUpgrade(ctx, FlairCoordinatorWorkflow, lastKnownCount)
+	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(SubredditName))
+	return workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
+		InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
+	}, FlairCoordinatorWorkflow, lastKnownCount)
 }
 
 func removeFromOrder(order []string, key string) []string {

@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/deployment"
+	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/searchattr"
 	"github.com/mikeacjones/reddit-trade-confirmation-bot/internal/shared"
 )
 
@@ -41,36 +42,41 @@ func DeploymentCleanupWorkflow(ctx workflow.Context, deploymentName, subredditNa
 		rt.restore(state)
 	}
 
-	listenSignal(ctx, "deployed", func(signal struct {
-		BuildID     string                  `json:"build_id"`
-		HealthCheck *deployment.HealthCheck `json:"health_check"`
-	}) {
-		buildID := signal.BuildID
-		found := false
-		for _, id := range rt.seenBuildIDs {
-			if id == buildID {
-				found = true
-				break
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		ch := workflow.GetSignalChannel(ctx, "deployed")
+		for {
+			var signal struct {
+				BuildID     string                  `json:"build_id"`
+				HealthCheck *deployment.HealthCheck `json:"health_check"`
 			}
+			ch.Receive(ctx, &signal)
+			buildID := signal.BuildID
+			found := false
+			for _, id := range rt.seenBuildIDs {
+				if id == buildID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rt.seenBuildIDs = append(rt.seenBuildIDs, buildID)
+			}
+			rt.currentBuildID = &buildID
+			if signal.HealthCheck == nil {
+				hc := deployment.HealthCheck{BuildID: buildID}
+				rt.healthCheck = &hc
+			} else {
+				rt.healthCheck = signal.HealthCheck
+			}
+			rt.monitorStartedAt = nil
+			rt.monitorDeadline = nil
+			rt.baselineMetrics = nil
+			rt.healthPassed = false
+			rt.lastCompletedWorkflows = 0
+			rt.lastCompletedActivities = 0
+			rt.rolledBack = false
+			rt.rollbackReason = nil
 		}
-		if !found {
-			rt.seenBuildIDs = append(rt.seenBuildIDs, buildID)
-		}
-		rt.currentBuildID = &buildID
-		if signal.HealthCheck == nil {
-			hc := deployment.HealthCheck{BuildID: buildID}
-			rt.healthCheck = &hc
-		} else {
-			rt.healthCheck = signal.HealthCheck
-		}
-		rt.monitorStartedAt = nil
-		rt.monitorDeadline = nil
-		rt.baselineMetrics = nil
-		rt.healthPassed = false
-		rt.lastCompletedWorkflows = 0
-		rt.lastCompletedActivities = 0
-		rt.rolledBack = false
-		rt.rollbackReason = nil
 	})
 	_ = workflow.SetQueryHandler(ctx, "get_status", func() (map[string]any, error) {
 		return rt.status(), nil
@@ -259,7 +265,10 @@ func (rt *cleanupRuntime) continueAsNewIfSuggested(ctx workflow.Context, deploym
 		return nil
 	}
 	workflow.GetLogger(ctx).Info("Continuing deployment cleanup as new", "deployment", deploymentName)
-	return continueAsNewAutoUpgrade(ctx, DeploymentCleanupWorkflow, deploymentName, subredditName, rt.snapshot())
+	_ = workflow.UpsertTypedSearchAttributes(ctx, searchattr.RedditSubreddit.ValueSet(subredditName))
+	return workflow.NewContinueAsNewErrorWithOptions(ctx, workflow.ContinueAsNewErrorOptions{
+		InitialVersioningBehavior: workflow.ContinueAsNewVersioningBehaviorAutoUpgrade,
+	}, DeploymentCleanupWorkflow, deploymentName, subredditName, rt.snapshot())
 }
 
 func (rt *cleanupRuntime) checkInterval() time.Duration {

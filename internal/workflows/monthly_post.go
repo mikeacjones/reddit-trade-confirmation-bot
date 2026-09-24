@@ -37,13 +37,14 @@ func MonthlyPostWorkflow(ctx workflow.Context) (map[string]any, error) {
 	}
 	oldSubmissionID := active.CurrentSubmissionID
 
+	summary := "prev:none"
+	if oldSubmissionID != nil {
+		summary = "prev:" + *oldSubmissionID
+	}
 	cao := workflow.ActivityOptions{
 		StartToCloseTimeout: 60 * time.Second,
 		RetryPolicy:         shared.RedditRetryPolicyConservative(),
-		Summary:             "prev:" + ptrVal(oldSubmissionID),
-	}
-	if ptrVal(oldSubmissionID) == "<nil>" {
-		cao.Summary = "prev:none"
+		Summary:             summary,
 	}
 	var newSubmissionID string
 	if err := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cao), "create_monthly_post", models.CreateMonthlyPostInput{
